@@ -6,6 +6,15 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Verzia na vydanie, napr. 1.0.0 (prázdne = len build)'
+        required: false
+        default: ''
+      notes:
+        description: 'Poznámky k vydaniu'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -27,12 +36,19 @@ jobs:
 
       - name: Verzia
         id: ver
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            V="${GITHUB_REF#refs/tags/v}"
+          RELEASE=false
+          if [[ -n "$INPUT_VERSION" ]]; then
+            V="${INPUT_VERSION#v}"; RELEASE=true
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            V="${GITHUB_REF#refs/tags/v}"; RELEASE=true
           else
             V="0.0.${GITHUB_RUN_NUMBER}"
           fi
+          echo "tag=v${V}" >> "$GITHUB_OUTPUT"
+          echo "release=${RELEASE}" >> "$GITHUB_OUTPUT"
           # Jellyfin chce 4-zložkovú číselnú verziu (v1.2.0-beta → 1.2.0.0)
           V="${V%%-*}"
           IFS='.' read -r a b c d <<< "$V"
@@ -56,18 +72,22 @@ jobs:
           path: dist/*.zip
 
       - name: Release + manifest
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: steps.ver.outputs.release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.ver.outputs.version }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          INPUT_NOTES: ${{ github.event.inputs.notes }}
         run: |
           ZIP="dist/csfd_${VERSION}.zip"
           MD5=$(md5sum "$ZIP" | cut -d' ' -f1)
-          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/csfd_${VERSION}.zip"
-          NOTES=$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME" | head -c 1000)
-          [ -z "$NOTES" ] && NOTES="Release ${GITHUB_REF_NAME}"
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/csfd_${VERSION}.zip"
+          NOTES="$INPUT_NOTES"
+          [ -z "$NOTES" ] && NOTES=$(git tag -l --format='%(contents)' "$TAG" 2>/dev/null | head -c 1000)
+          [ -z "$NOTES" ] && NOTES="Release ${TAG}"
 
-          gh release create "$GITHUB_REF_NAME" "$ZIP" --title "$GITHUB_REF_NAME" --notes "$NOTES"
+          # Pri spustení z Actions tag ešte neexistuje – gh ho vytvorí na aktuálnom commite.
+          gh release create "$TAG" "$ZIP" --title "$TAG" --notes "$NOTES" --target "$GITHUB_SHA"
 
           git fetch origin main
           git checkout main
