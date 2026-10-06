@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ČSFD</title>
+</head>
+<body>
+    <div id="csfdConfigPage" data-role="page" class="page type-interior pluginConfigurationPage csfdConfigPage" data-require="emby-input,emby-button,emby-checkbox">
+        <div data-role="content">
+            <div class="content-primary">
+                <h1>ČSFD</h1>
+                <p>Metadáta z ČSFD cez kontajner <code>csfd-api</code>. Odporúčané poradie fetcherov v knižnici:
+                    <b>metadáta</b> ČSFD → TMDb → OMDb, <b>obrázky</b> TMDb → ČSFD.</p>
+                <form class="csfdConfigForm">
+                    <div class="verticalSection">
+                        <h2>Spojenie</h2>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="text" id="ApiUrl" label="URL csfd-api" />
+                            <div class="fieldDescription">Napr. http://192.168.1.201:3080</div>
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="password" id="ApiKey" label="API kľúč (x-api-key)" />
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="number" id="RequestDelayMs" min="500" max="60000" label="Rozostup medzi požiadavkami (ms)" />
+                            <div class="fieldDescription">Šetrí ČSFD. 2500 ms ≈ 1 400 požiadaviek za hodinu.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="number" id="CacheDays" min="1" max="365" label="Platnosť cache (dni)" />
+                        </div>
+                        <button is="emby-button" type="button" id="csfdTest" class="raised button-alt block"><span>Otestovať spojenie</span></button>
+                        <button is="emby-button" type="button" id="csfdClear" class="raised button-alt block"><span>Vymazať cache</span></button>
+                        <div id="csfdTestResult" class="fieldDescription" style="margin-top:.5em;"></div>
+                    </div>
+
+                    <div class="verticalSection">
+                        <h2>Čo brať z ČSFD</h2>
+                        <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" id="UseSlovakTitle" /><span>Slovenský názov</span></label>
+                        <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" id="UseOverview" /><span>Popis (slovenský)</span></label>
+                        <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" id="FallbackEnglish" /><span>Ak chýba SK popis, skúsiť anglický</span></label>
+                        <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" id="FallbackCzech" /><span>Ako poslednú možnosť povoliť český názov/popis</span></label>
+                        <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" id="UseRating" /><span>Hodnotenie ČSFD (90 % → 9.0)</span></label>
+                        <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" id="AlsoCriticRating" /><span>Hodnotenie zapísať aj ako CriticRating (v %)</span></label>
+                        <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" id="UseGenres" /><span>Žánre</span></label>
+                        <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" id="UseTags" /><span>Tagy</span></label>
+                        <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" id="UsePremiereDate" /><span>Dátum premiéry (SK, potom CZ)</span></label>
+                        <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" id="UseEpisodes" /><span>Sezóny a epizódy (SK názvy a popisy)</span></label>
+                        <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" id="UsePeople" /><span>Herci a tvorcovia z ČSFD (bez rolí a fotiek – v hybride nechaj vypnuté)</span></label>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="number" id="MaxActors" min="0" max="100" label="Max. počet hercov" />
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="number" id="MinMatchScore" min="30" max="100" label="Minimálne skóre zhody (0–100)" />
+                            <div class="fieldDescription">Pod touto hranicou sa titul automaticky nepriradí (dá sa ručne cez Identifikovať – ČSFD URL alebo ID).</div>
+                        </div>
+                    </div>
+
+                    <button is="emby-button" type="submit" class="raised button-submit block"><span>Uložiť</span></button>
+                </form>
+            </div>
+        </div>
+        <script type="text/javascript">
+            (function () {
+                var pluginId = '6f1c2b0e-8d47-4a3b-9c55-c5fd0a12b7e1';
+                var textFields = ['ApiUrl', 'ApiKey'];
+                var numberFields = ['RequestDelayMs', 'CacheDays', 'MaxActors', 'MinMatchScore'];
+                var boolFields = ['UseSlovakTitle', 'UseOverview', 'FallbackEnglish', 'FallbackCzech', 'UseRating', 'AlsoCriticRating',
+                    'UseGenres', 'UseTags', 'UsePremiereDate', 'UseEpisodes', 'UsePeople'];
+                var page = document.querySelector('#csfdConfigPage');
+
+                function el(id) { return page.querySelector('#' + id); }
+
+                page.addEventListener('pageshow', function () {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                        textFields.forEach(function (f) { el(f).value = config[f] || ''; });
+                        numberFields.forEach(function (f) { el(f).value = config[f]; });
+                        boolFields.forEach(function (f) { el(f).checked = !!config[f]; });
+                        Dashboard.hideLoadingMsg();
+                    });
+                });
+
+                page.querySelector('.csfdConfigForm').addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                        textFields.forEach(function (f) { config[f] = el(f).value.trim(); });
+                        numberFields.forEach(function (f) { config[f] = parseInt(el(f).value, 10) || 0; });
+                        boolFields.forEach(function (f) { config[f] = el(f).checked; });
+                        ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {
+                            Dashboard.processPluginConfigurationUpdateResult(result);
+                        });
+                    });
+                    return false;
+                });
+
+                el('csfdTest').addEventListener('click', function () {
+                    var out = el('csfdTestResult');
+                    out.textContent = 'Testujem… (ulož nastavenia pred testom)';
+                    ApiClient.fetch({ url: ApiClient.getUrl('Plugins/Csfd/Test'), type: 'GET', dataType: 'json' })
+                        .then(function (r) {
+                            out.textContent = r.ok
+                                ? 'OK: ' + r.title + ' (' + r.year + ') – ' + r.rating + ' %, ' + r.ms + ' ms'
+                                : 'Chyba: ' + r.message;
+                        })
+                        .catch(function (err) { out.textContent = 'Chyba: ' + err; });
+                });
+
+                el('csfdClear').addEventListener('click', function () {
+                    var out = el('csfdTestResult');
+                    ApiClient.fetch({ url: ApiClient.getUrl('Plugins/Csfd/ClearCache'), type: 'POST', dataType: 'json' })
+                        .then(function (r) { out.textContent = 'Cache vymazaná (' + r.deleted + ' súborov).'; })
+                        .catch(function (err) { out.textContent = 'Chyba: ' + err; });
+                });
+            })();
+        </script>
+    </div>
+</body>
+</html>

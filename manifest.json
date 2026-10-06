@@ -1,0 +1,11 @@
+[
+  {
+    "guid": "6f1c2b0e-8d47-4a3b-9c55-c5fd0a12b7e1",
+    "name": "ČSFD",
+    "description": "Metadáta z ČSFD: slovenské názvy a popisy, hodnotenie ČSFD, premiéry, sezóny a epizódy.",
+    "overview": "ČSFD metadata provider (cez csfd-api sidecar)",
+    "owner": "Roman",
+    "category": "Metadata",
+    "versions": []
+  }
+]
