@@ -8,6 +8,14 @@
     "category": "Metadata",
     "versions": [
       {
+        "version": "1.0.1.0",
+        "changelog": "Oprava: filmy s číselným názvom (1917) sa už nespárujú s ČSFD ID rovnakého čísla; chybné ID sa pri Replace all metadata opraví samo. Test spojenia sám uloží nastavenia.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Yossarian222/jellyfin-plugin-csfd/releases/download/v1.0.1/csfd_1.0.1.0.zip",
+        "checksum": "da3c9070954790c7987c847f95fb6ba0",
+        "timestamp": "2026-10-06T16:59:08Z"
+      },
+      {
         "version": "1.0.0.0",
         "changelog": "Prvá verzia: SK názvy a popisy, hodnotenie ČSFD, premiéry, sezóny a epizódy (Jellyfin 12.x)",
         "targetAbi": "12.0.0.0",
