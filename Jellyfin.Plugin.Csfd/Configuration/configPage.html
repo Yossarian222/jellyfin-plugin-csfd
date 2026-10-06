@@ -79,24 +79,29 @@
                     });
                 });
 
-                page.querySelector('.csfdConfigForm').addEventListener('submit', function (e) {
-                    e.preventDefault();
-                    Dashboard.showLoadingMsg();
-                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                function save() {
+                    return ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                         textFields.forEach(function (f) { config[f] = el(f).value.trim(); });
                         numberFields.forEach(function (f) { config[f] = parseInt(el(f).value, 10) || 0; });
                         boolFields.forEach(function (f) { config[f] = el(f).checked; });
-                        ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {
-                            Dashboard.processPluginConfigurationUpdateResult(result);
-                        });
+                        return ApiClient.updatePluginConfiguration(pluginId, config);
+                    });
+                }
+
+                page.querySelector('.csfdConfigForm').addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    Dashboard.showLoadingMsg();
+                    save().then(function (result) {
+                        Dashboard.processPluginConfigurationUpdateResult(result);
                     });
                     return false;
                 });
 
                 el('csfdTest').addEventListener('click', function () {
                     var out = el('csfdTestResult');
-                    out.textContent = 'Testujem… (ulož nastavenia pred testom)';
-                    ApiClient.fetch({ url: ApiClient.getUrl('Plugins/Csfd/Test'), type: 'GET', dataType: 'json' })
+                    out.textContent = 'Ukladám nastavenia a testujem…';
+                    save()
+                        .then(function () { return ApiClient.fetch({ url: ApiClient.getUrl('Plugins/Csfd/Test'), type: 'GET', dataType: 'json' }); })
                         .then(function (r) {
                             out.textContent = r.ok
                                 ? 'OK: ' + r.title + ' (' + r.year + ') – ' + r.rating + ' %, ' + r.ms + ' ms'

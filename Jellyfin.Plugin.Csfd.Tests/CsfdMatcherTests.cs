@@ -19,13 +19,16 @@ public class CsfdMatcherTests
     }
 
     [Fact]
-    public void BareNumberName_IsNotAnIdDuringAutomaticScan()
+    public void BareNumberName_IsNeverAnId_EvenOnManualRefresh()
     {
-        var info = new MovieInfo { Name = "1917", Year = 2019, IsAutomated = true };
+        // Ručný "Refresh metadata" v Jellyfine nastavuje IsAutomated=false.
+        var info = new MovieInfo { Name = "1917", Year = 2019, IsAutomated = false };
         Assert.Null(CsfdMatcher.GetExplicitId(info));
+        Assert.Equal(1917, CsfdMatcher.GetBareNumberFromName(info));
 
-        info.IsAutomated = false;
+        info.Name = "csfd:1917";
         Assert.Equal(1917, CsfdMatcher.GetExplicitId(info));
+        Assert.Null(CsfdMatcher.GetBareNumberFromName(info));
     }
 
     [Fact]

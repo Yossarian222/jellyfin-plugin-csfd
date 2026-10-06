@@ -40,22 +40,17 @@ public sealed partial class CsfdMatcher
             return id;
         }
 
-        // Holé číslo v názve berieme len pri ručnom Identify (film "1917" nie je ČSFD ID 1917).
-        return TryParseId(info.Name, out var fromName, allowBareNumber: !info.IsAutomated) ? fromName : null;
+        // Z názvu len ČSFD URL alebo "csfd:ID" – holé číslo nikdy (film "1917" nie je ČSFD ID 1917;
+        // Jellyfin pri ručnom refreshi nastavuje IsAutomated=false, takže sa na to spoliehať nedá).
+        return TryParseId(info.Name, out var fromName, allowBareNumber: false) ? fromName : null;
     }
 
     /// <summary>
-    /// ID pre Identify dialóg: tam Jellyfin nenastavuje IsAutomated, takže holé číslo povolíme vždy.
+    /// Holé číslo v názve v Identify dialógu – môže to byť ČSFD ID aj názov filmu („1917“),
+    /// preto ho provider ponúkne ako ďalší výsledok popri bežnom vyhľadávaní.
     /// </summary>
-    public static int? GetIdForIdentify(ItemLookupInfo info)
-    {
-        if (info.ProviderIds.TryGetValue(Plugin.ProviderKey, out var raw) && TryParseId(raw, out var id))
-        {
-            return id;
-        }
-
-        return TryParseId(info.Name, out var fromName, allowBareNumber: true) ? fromName : null;
-    }
+    public static int? GetBareNumberFromName(ItemLookupInfo info)
+        => info.Name is not null && info.Name.Trim().All(char.IsDigit) && TryParseId(info.Name, out var id) ? id : null;
 
     /// <summary>Akceptuje "8852", "csfd:8852" aj celú URL ČSFD.</summary>
     public static bool TryParseId(string? value, out int id, bool allowBareNumber = true)
@@ -149,7 +144,12 @@ public sealed partial class CsfdMatcher
         var explicitId = GetExplicitId(info);
         if (explicitId.HasValue)
         {
-            return explicitId;
+            if (!await LooksLikeTitleMistakenForIdAsync(info, explicitId.Value, cancellationToken).ConfigureAwait(false))
+            {
+                return explicitId;
+            }
+
+            _logger.LogInformation("ČSFD: uložené ID {Id} pre {Name} ({Year}) je zjavne omyl (názov = číslo), hľadám znova", explicitId, info.Name, info.Year);
         }
 
         var candidates = await FindCandidatesAsync(info, series, cancellationToken).ConfigureAwait(false);
@@ -202,6 +202,28 @@ public sealed partial class CsfdMatcher
             best.Item.Year,
             Math.Max(best.Score, bestVerified));
         return null;
+    }
+
+    /// <summary>
+    /// Oprava starej chyby: film „1917“ dostal ČSFD ID 1917. Ak sa uložené ID zhoduje s číselným názvom
+    /// a rok ČSFD záznamu nesedí, ID ignorujeme a hľadáme normálne (Replace all metadata ho prepíše).
+    /// </summary>
+    private async Task<bool> LooksLikeTitleMistakenForIdAsync(ItemLookupInfo info, int id, CancellationToken cancellationToken)
+    {
+        var name = info.Name?.Trim();
+        if (string.IsNullOrEmpty(name) || !name.All(char.IsDigit) || name != id.ToString(CultureInfo.InvariantCulture))
+        {
+            return false;
+        }
+
+        var year = info.Year ?? info.PremiereDate?.Year;
+        if (!year.HasValue)
+        {
+            return false;
+        }
+
+        var detail = await _client.GetMovieAsync(id, "sk", cancellationToken).ConfigureAwait(false);
+        return detail?.Year is not int csfdYear || Math.Abs(csfdYear - year.Value) > 1;
     }
 
     /// <summary>Skóre 0–100: podobnosť názvu (max 70) + rok (±30) + typ (−15 pri nezhode).</summary>

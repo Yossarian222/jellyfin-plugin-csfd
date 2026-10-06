@@ -37,15 +37,30 @@ public class CsfdMovieProvider : IRemoteMetadataProvider<Movie, MovieInfo>, IHas
     /// <inheritdoc />
     public async Task<IEnumerable<RemoteSearchResult>> GetSearchResults(MovieInfo searchInfo, CancellationToken cancellationToken)
     {
-        var id = CsfdMatcher.GetIdForIdentify(searchInfo);
+        // ČSFD URL, "csfd:ID" alebo už uložené ID → priamo ten záznam.
+        var id = CsfdMatcher.GetExplicitId(searchInfo);
         if (id.HasValue)
         {
             var movie = await _client.GetMovieAsync(id.Value, "sk", cancellationToken).ConfigureAwait(false);
             return movie is null ? Enumerable.Empty<RemoteSearchResult>() : new[] { CsfdMetadataMapper.ToSearchResult(id.Value, movie) };
         }
 
+        var results = new List<RemoteSearchResult>();
         var candidates = await _matcher.FindCandidatesAsync(searchInfo, false, cancellationToken).ConfigureAwait(false);
-        return candidates.Take(10).Select(CsfdMetadataMapper.ToSearchResult).ToList();
+        results.AddRange(candidates.Take(10).Select(CsfdMetadataMapper.ToSearchResult));
+
+        // Holé číslo môže byť aj ČSFD ID – ponúkneme ho na konci zoznamu.
+        var bare = CsfdMatcher.GetBareNumberFromName(searchInfo);
+        if (bare.HasValue && candidates.All(c => c.Item.Id != bare.Value))
+        {
+            var byId = await _client.GetMovieAsync(bare.Value, "sk", cancellationToken).ConfigureAwait(false);
+            if (byId is not null)
+            {
+                results.Add(CsfdMetadataMapper.ToSearchResult(bare.Value, byId));
+            }
+        }
+
+        return results;
     }
 
     /// <inheritdoc />
