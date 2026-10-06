@@ -1,0 +1,83 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  # Verzia Jellyfin NuGet balíkov a cieľové ABI v manifeste.
+  JELLYFIN_VERSION: '12.0.0'
+  TARGET_ABI: '12.0.0.0'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Verzia
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            V="${GITHUB_REF#refs/tags/v}"
+          else
+            V="0.0.${GITHUB_RUN_NUMBER}"
+          fi
+          # Jellyfin chce 4-zložkovú číselnú verziu (v1.2.0-beta → 1.2.0.0)
+          V="${V%%-*}"
+          IFS='.' read -r a b c d <<< "$V"
+          echo "version=${a:-0}.${b:-0}.${c:-0}.${d:-0}" >> "$GITHUB_OUTPUT"
+
+      - name: Test
+        run: dotnet test Jellyfin.Plugin.Csfd.Tests -c Release -p:JellyfinVersion=${JELLYFIN_VERSION}
+
+      - name: Build
+        run: |
+          dotnet publish Jellyfin.Plugin.Csfd -c Release -o out \
+            -p:JellyfinVersion=${JELLYFIN_VERSION} \
+            -p:AssemblyVersion=${{ steps.ver.outputs.version }} \
+            -p:FileVersion=${{ steps.ver.outputs.version }}
+          mkdir -p dist
+          cd out && zip -j "../dist/csfd_${{ steps.ver.outputs.version }}.zip" Jellyfin.Plugin.Csfd.dll
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: csfd_${{ steps.ver.outputs.version }}
+          path: dist/*.zip
+
+      - name: Release + manifest
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          ZIP="dist/csfd_${VERSION}.zip"
+          MD5=$(md5sum "$ZIP" | cut -d' ' -f1)
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/csfd_${VERSION}.zip"
+          NOTES=$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME" | head -c 1000)
+          [ -z "$NOTES" ] && NOTES="Release ${GITHUB_REF_NAME}"
+
+          gh release create "$GITHUB_REF_NAME" "$ZIP" --title "$GITHUB_REF_NAME" --notes "$NOTES"
+
+          git fetch origin main
+          git checkout main
+          TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          jq --arg v "$VERSION" --arg abi "$TARGET_ABI" --arg url "$URL" --arg md5 "$MD5" --arg ts "$TS" --arg log "$NOTES" \
+            '.[0].versions = ([{version:$v, changelog:$log, targetAbi:$abi, sourceUrl:$url, checksum:$md5, timestamp:$ts}] + [.[0].versions[] | select(.version != $v)])' \
+            manifest.json > manifest.tmp && mv manifest.tmp manifest.json
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add manifest.json
+          git commit -m "manifest: ${VERSION}" || echo "bez zmeny"
+          git push origin main
