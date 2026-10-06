@@ -21,7 +21,7 @@ Parsovanie ČSFD a riešenie Anubis výzvy robí [node-csfd-api](https://github.
 ## 2. Inštalácia pluginu
 
 **Cez katalóg (odporúčané):** Dashboard → Plugins → **Repositories** → `+` →
-`https://raw.githubusercontent.com/<github-user>/jellyfin-plugin-csfd/main/manifest.json` → Catalog → **ČSFD** → Install → reštart Jellyfinu.
+`https://raw.githubusercontent.com/Yossarian222/jellyfin-plugin-csfd/main/manifest.json` → Catalog → **ČSFD** → Install → reštart Jellyfinu.
 
 **Ručne:** rozbaľ `csfd_x.y.z.w.zip` z Releases do `/config/plugins/Csfd_x.y.z.w/` v Jellyfin kontajneri a reštartuj.
 
@@ -66,5 +66,5 @@ Nasflix číta z Jellyfin API `ProviderIds.Csfd` (odkaz/ID), `CommunityRating ×
 
 ## Build
 
-GitHub Actions: push = test + build, tag `v1.0.0` = release + aktualizácia `manifest.json`.
+GitHub Actions: push = test + build. Nové vydanie: **Actions → build → Run workflow**, zadaj verziu (napr. `1.0.1`) → vytvorí sa release, tag a aktualizuje `manifest.json`. Jellyfin potom ponúkne update v katalógu.
 Lokálne: `dotnet test Jellyfin.Plugin.Csfd.Tests && dotnet publish Jellyfin.Plugin.Csfd -c Release`.
