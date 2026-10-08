@@ -110,26 +110,35 @@ public sealed class CsfdAccountClient
 
                 var http = _session!;
                 var film = await CsfdTvTipsClient.GetPageAsync(http, $"/film/{csfdId}/prehlad/", _logger, cancellationToken).ConfigureAwait(false);
-                var href = film is null ? null : FindStarHref(film, stars * 20);
-                if (href is null || href.Contains("registration-motivation", StringComparison.Ordinal))
+                var form = film is null ? null : FindRatingForm(film);
+                if (form is null)
                 {
-                    // Relácia vypršala – prihlásime sa znova.
+                    // Bez formulára „form-stars-add“ nie sme prihlásení (relácia vypršala) – prihlásime sa znova.
                     _loggedIn = false;
                     continue;
                 }
 
-                var url = href.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? href : "https://www.csfd.sk" + href;
-                using var response = await http.GetAsync(new Uri(url), cancellationToken).ConfigureAwait(false);
+                if (FindStarHref(film!, stars * 20) == "#close-dropdown")
+                {
+                    // Film už má presne toto hodnotenie.
+                    UpdateCache(csfdId, stars);
+                    return (true, "OK");
+                }
+
+                // Rovnaké pole ako po kliknutí na hviezdu (CSFD.SecureHandle vloží kód hviezdy do _value_).
+                using var body = new FormUrlEncodedContent(new Dictionary<string, string>
+                {
+                    ["_token_"] = form.Value.Token,
+                    ["_value_"] = EncodeValue(stars * 20),
+                    ["_do"] = "starRating-addRating-form-submit"
+                });
+                using var response = await http.PostAsync(new Uri("https://www.csfd.sk" + form.Value.Action), body, cancellationToken).ConfigureAwait(false);
                 if (!response.IsSuccessStatusCode)
                 {
                     return (false, $"ČSFD vrátilo HTTP {(int)response.StatusCode}");
                 }
 
-                if (_ratings is not null)
-                {
-                    _ratings[csfdId] = stars;
-                }
-
+                UpdateCache(csfdId, stars);
                 _logger.LogInformation("ČSFD účet: film {CsfdId} ohodnotený {Stars}/5", csfdId, stars);
                 return (true, "OK");
             }
@@ -173,6 +182,52 @@ public sealed class CsfdAccountClient
                 var value = stars.Groups[1].Success ? int.Parse(stars.Groups[1].Value, CultureInfo.InvariantCulture) : 0;
                 ratings.TryAdd(int.Parse(film.Groups[1].Value, CultureInfo.InvariantCulture), value);
             }
+        }
+    }
+
+    /// <summary>Kód hodnotenia ako CSFD.SimpleCrypt.encode: ROT13(base64url(JSON)), napr. 20 → „ZwN“.</summary>
+    internal static string EncodeValue(int rating100)
+    {
+        var b64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(rating100.ToString(CultureInfo.InvariantCulture)))
+            .Replace('+', '-').Replace('/', '_').TrimEnd('=');
+        var chars = b64.ToCharArray();
+        for (var i = 0; i < chars.Length; i++)
+        {
+            var c = chars[i];
+            if (char.IsAsciiLetter(c))
+            {
+                chars[i] = (char)(c + (char.ToLowerInvariant(c) < 'n' ? 13 : -13));
+            }
+        }
+
+        return new string(chars);
+    }
+
+    /// <summary>Akcia a CSRF token formulára „form-stars-add“ (je len pre prihláseného).</summary>
+    internal static (string Action, string Token)? FindRatingForm(string html)
+    {
+        var form = Regex.Match(html, @"<form[^>]*id=""form-stars-add""[^>]*>.*?</form>", RegexOptions.Singleline);
+        if (!form.Success)
+        {
+            return null;
+        }
+
+        var action = Regex.Match(form.Value, @"action=""([^""]+)""");
+        var token = Regex.Match(form.Value, @"name=""_token_""[^>]*value=""([^""]*)""|value=""([^""]*)""[^>]*name=""_token_""");
+        if (!action.Success || !token.Success)
+        {
+            return null;
+        }
+
+        return (WebUtility.HtmlDecode(action.Groups[1].Value),
+            WebUtility.HtmlDecode(token.Groups[1].Success ? token.Groups[1].Value : token.Groups[2].Value));
+    }
+
+    private static void UpdateCache(int csfdId, int stars)
+    {
+        if (_ratings is not null)
+        {
+            _ratings[csfdId] = stars;
         }
     }
 
@@ -236,7 +291,7 @@ public sealed class CsfdAccountClient
         }
 
         var check = await CsfdTvTipsClient.GetPageAsync(_session, "/", _logger, cancellationToken).ConfigureAwait(false) ?? html;
-        _loggedIn = check.Contains("/odhlasenie/", StringComparison.Ordinal)
+        _loggedIn = check.Contains("/odhlasit/", StringComparison.Ordinal)
             || check.Contains(config.CsfdNick.Trim(), StringComparison.OrdinalIgnoreCase)
             || check.Contains("odhlásiť", StringComparison.OrdinalIgnoreCase);
         _logger.LogInformation("ČSFD účet: prihlásenie {Result}", _loggedIn ? "OK" : "zlyhalo");

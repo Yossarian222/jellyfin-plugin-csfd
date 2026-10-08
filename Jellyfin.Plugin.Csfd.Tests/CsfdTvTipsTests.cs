@@ -87,6 +87,30 @@ public class CsfdTvTipsTests
         Assert.Null(CsfdAccountClient.FindStarHref(page, 60));
     }
 
+    [Theory]
+    [InlineData(0, "ZN")]
+    [InlineData(20, "ZwN")]
+    [InlineData(40, "AQN")]
+    [InlineData(60, "AwN")]
+    [InlineData(100, "ZGNj")]
+    public void Account_EncodesRatingLikeCsfd(int rating100, string expected)
+        => Assert.Equal(expected, CsfdAccountClient.EncodeValue(rating100));
+
+    [Fact]
+    public void Account_FindsRatingForm()
+    {
+        const string page = """
+            <form action="/film/708117-1917/prehlad/" method="post" id="form-stars-add" data-tab-link-first="/film/708117-1917/prehlad/">
+            <input type="hidden" name="_token_" value="abc&amp;def"><input type="hidden" name="_value_" value=""><input type="hidden" name="_do" value="starRating-addRating-form-submit">
+            </form>
+            """;
+
+        var form = CsfdAccountClient.FindRatingForm(page);
+
+        Assert.Equal(("/film/708117-1917/prehlad/", "abc&def"), form);
+        Assert.Null(CsfdAccountClient.FindRatingForm("<form id=\"frm-loginForm\"></form>"));
+    }
+
     [Fact]
     public void UserAgent_IsAValidHeader()
     {
