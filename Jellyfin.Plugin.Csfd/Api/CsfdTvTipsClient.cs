@@ -12,16 +12,16 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Csfd.Api;
 
-/// <summary>Jeden „TV tip dňa“ zo stránky csfd.cz/televize.</summary>
+/// <summary>Jeden „TV tip dňa“ zo stránky csfd.sk/televizia.</summary>
 public sealed record CsfdTvTip(int CsfdId, string Title, int? Year, string? Time, string? Channel);
 
 /// <summary>
-/// Číta „TV tipy dňa“ priamo z csfd.cz/televize/ (sidecar csfd-api na ne endpoint nemá).
+/// Číta „TV tipy dňa“ priamo z csfd.sk/televizia/ (slovenský program; sidecar csfd-api na ne endpoint nemá).
 /// Stránku chráni Anubis, tak jeho proof-of-work riešime sami (algoritmus fast/slow = SHA-256 s nulami na začiatku).
 /// </summary>
 public sealed class CsfdTvTipsClient
 {
-    private const string Host = "https://www.csfd.cz";
+    private const string Host = "https://www.csfd.sk";
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(3);
 
     private static readonly Regex ArticleSplit = new("<article class=\"article article-poster-78", RegexOptions.Compiled);
@@ -84,11 +84,18 @@ public sealed class CsfdTvTipsClient
                 continue;
             }
 
+            var csfdId = int.Parse(id.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            if (tips.Exists(t => t.CsfdId == csfdId))
+            {
+                // Rovnaký film beží na viacerých staniciach – stačí prvý výskyt.
+                continue;
+            }
+
             var year = YearRx.Match(part);
             var time = TimeRx.Match(part);
             var channel = ChannelRx.Match(part);
             tips.Add(new CsfdTvTip(
-                int.Parse(id.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture),
+                csfdId,
                 WebUtility.HtmlDecode(title.Groups[1].Value).Trim(),
                 year.Success ? int.Parse(year.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture) : null,
                 time.Success ? WebUtility.HtmlDecode(time.Groups[1].Value).Trim() : null,
@@ -128,7 +135,7 @@ public sealed class CsfdTvTipsClient
 
     private async Task<string?> FetchAsync(int day, CancellationToken cancellationToken)
     {
-        var path = day == 0 ? "/televize/" : $"/televize/?day={day}";
+        var path = day == 0 ? "/televizia/" : $"/televizia/?day={day}";
         using var handler = new HttpClientHandler { CookieContainer = new CookieContainer(), AllowAutoRedirect = true };
         using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
         http.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (X11; Linux x86_64) Jellyfin-ČSFD-plugin");

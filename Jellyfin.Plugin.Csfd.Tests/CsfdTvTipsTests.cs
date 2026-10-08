@@ -30,6 +30,14 @@ public class CsfdTvTipsTests
     }
 
     [Fact]
+    public void ParseTips_KeepsFirstOccurrenceOfFilmOnMoreChannels()
+    {
+        var tips = CsfdTvTipsClient.ParseTips(Html + Html);
+
+        Assert.Equal(2, tips.Count);
+    }
+
+    [Fact]
     public void SolveChallenge_FindsHashWithLeadingZeros()
     {
         var page = """<script id="anubis_challenge" type="application/json">{"rules":{"algorithm":"fast","difficulty":2},"challenge":{"id":"abc","randomData":"deadbeef"}}</script>""";
