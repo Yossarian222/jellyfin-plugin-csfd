@@ -15,6 +15,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     {
         serviceCollection.AddSingleton<CsfdApiClient>();
         serviceCollection.AddSingleton<CsfdTvTipsClient>();
+        serviceCollection.AddSingleton<CsfdRankingsClient>();
         serviceCollection.AddSingleton<CsfdMatcher>();
         serviceCollection.AddSingleton<CsfdMetadataMapper>();
         serviceCollection.AddSingleton<CsfdSeriesStructure>();

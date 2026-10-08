@@ -139,37 +139,11 @@ public sealed class CsfdTvTipsClient
     private async Task<string?> FetchAsync(int day, CancellationToken cancellationToken)
     {
         var path = day == 0 ? "/televizia/" : $"/televizia/?day={day}";
-        using var handler = new HttpClientHandler { CookieContainer = new CookieContainer(), AllowAutoRedirect = true };
-        using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
-
+        using var http = CreateHttpClient();
         try
         {
-            var html = await http.GetStringAsync(new Uri(Host + path), cancellationToken).ConfigureAwait(false);
-            if (!html.Contains("anubis_challenge", StringComparison.Ordinal))
-            {
-                return await SortedByRatingAsync(http, path, html, cancellationToken).ConfigureAwait(false);
-            }
-
-            var solved = SolveChallenge(html);
-            if (solved is null)
-            {
-                _logger.LogWarning("ČSFD TV: výzvu Anubis sa nepodarilo vyriešiť");
-                return null;
-            }
-
-            var pass = $"{Host}/.within.website/x/cmd/anubis/api/pass-challenge?id={solved.Value.Id}"
-                + $"&response={solved.Value.Hash}&nonce={solved.Value.Nonce}"
-                + $"&redir={Uri.EscapeDataString(Host + path)}&elapsedTime=50";
-            using var passResponse = await http.GetAsync(new Uri(pass), cancellationToken).ConfigureAwait(false);
-            var result = await passResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            if (result.Contains("anubis_challenge", StringComparison.Ordinal))
-            {
-                _logger.LogWarning("ČSFD TV: Anubis odpoveď neprijal ({Status})", (int)passResponse.StatusCode);
-                return null;
-            }
-
-            return await SortedByRatingAsync(http, path, result, cancellationToken).ConfigureAwait(false);
+            var html = await GetPageAsync(http, path, _logger, cancellationToken).ConfigureAwait(false);
+            return html is null ? null : await SortedByRatingAsync(http, path, html, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
@@ -177,6 +151,45 @@ public sealed class CsfdTvTipsClient
             _logger.LogWarning(ex, "ČSFD TV: stránka {Path} sa nepodarila načítať", path);
             return null;
         }
+    }
+
+    /// <summary>HttpClient s vlastnými cookies – po vyriešení Anubis v ňom ostane priepustka pre ďalšie stránky.</summary>
+    internal static HttpClient CreateHttpClient()
+    {
+        var handler = new HttpClientHandler { CookieContainer = new CookieContainer(), AllowAutoRedirect = true };
+        var http = new HttpClient(handler, disposeHandler: true) { Timeout = TimeSpan.FromSeconds(30) };
+        http.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
+        return http;
+    }
+
+    /// <summary>Stiahne stránku csfd.sk; ak ju chráni Anubis, vyrieši výzvu. Null = výzvu sa nepodarilo prejsť.</summary>
+    internal static async Task<string?> GetPageAsync(HttpClient http, string path, ILogger logger, CancellationToken cancellationToken)
+    {
+        var html = await http.GetStringAsync(new Uri(Host + path), cancellationToken).ConfigureAwait(false);
+        if (!html.Contains("anubis_challenge", StringComparison.Ordinal))
+        {
+            return html;
+        }
+
+        var solved = SolveChallenge(html);
+        if (solved is null)
+        {
+            logger.LogWarning("ČSFD: výzvu Anubis sa nepodarilo vyriešiť");
+            return null;
+        }
+
+        var pass = $"{Host}/.within.website/x/cmd/anubis/api/pass-challenge?id={solved.Value.Id}"
+            + $"&response={solved.Value.Hash}&nonce={solved.Value.Nonce}"
+            + $"&redir={Uri.EscapeDataString(Host + path)}&elapsedTime=50";
+        using var passResponse = await http.GetAsync(new Uri(pass), cancellationToken).ConfigureAwait(false);
+        var result = await passResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        if (result.Contains("anubis_challenge", StringComparison.Ordinal))
+        {
+            logger.LogWarning("ČSFD: Anubis odpoveď neprijal ({Status})", (int)passResponse.StatusCode);
+            return null;
+        }
+
+        return result;
     }
 
     /// <summary>

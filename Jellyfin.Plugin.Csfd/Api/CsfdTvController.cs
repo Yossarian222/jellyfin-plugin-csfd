@@ -5,6 +5,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.Csfd.Configuration;
+using Jellyfin.Plugin.Csfd.Matching;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Authorization;
@@ -42,6 +44,16 @@ public sealed class CsfdTvTipDto
 
     /// <summary>Pri chýbajúcom tipe: plagát z ČSFD.</summary>
     public string? Poster { get; set; }
+
+    /// <summary>Pri chýbajúcom tipe: fotka z ČSFD (záloha pozadia).</summary>
+    public string? Photo { get; set; }
+
+    /// <summary>Pri chýbajúcom tipe: popis z ČSFD (SK, inak CZ).</summary>
+    public string? Overview { get; set; }
+
+    public List<string>? Genres { get; set; }
+
+    public int? DurationMinutes { get; set; }
 }
 
 /// <summary>Endpoint pre klientov (Wholphinix): „TV tipy dňa“ z ČSFD zúžené na to, čo je v knižnici používateľa.</summary>
@@ -57,15 +69,28 @@ public class CsfdTvController : ControllerBase
     private readonly IUserManager _userManager;
     private readonly ILogger<CsfdTvController> _logger;
     private readonly CsfdApiClient _client;
+    private readonly CsfdRankingsClient _rankings;
 
-    public CsfdTvController(CsfdTvTipsClient tips, ILibraryManager libraryManager, IUserManager userManager, ILogger<CsfdTvController> logger, CsfdApiClient client)
+    public CsfdTvController(
+        CsfdTvTipsClient tips,
+        ILibraryManager libraryManager,
+        IUserManager userManager,
+        ILogger<CsfdTvController> logger,
+        CsfdApiClient client,
+        CsfdRankingsClient rankings)
     {
         _tips = tips;
         _client = client;
+        _rankings = rankings;
         _libraryManager = libraryManager;
         _userManager = userManager;
         _logger = logger;
     }
+
+    /// <summary>Poradie v ČSFD rebríčkoch najlepších filmov a seriálov: ČSFD ID → pozícia.</summary>
+    [HttpGet("Ranks")]
+    public async Task<ActionResult<IReadOnlyDictionary<int, int>>> Ranks(CancellationToken cancellationToken = default)
+        => Ok(await _rankings.GetRanksAsync(cancellationToken).ConfigureAwait(false));
 
     /// <summary>Najlepšie hodnotené TV tipy dňa, ktoré má používateľ v knižnici.</summary>
     [HttpGet("TvTips")]
@@ -171,11 +196,7 @@ public class CsfdTvController : ControllerBase
 
         var titles = new List<string?> { tip.Title, detail?.Title };
         titles.AddRange(detail?.TitlesOther?.Select(t => t.Title) ?? Enumerable.Empty<string?>());
-        var poster = detail?.Poster;
-        if (poster is not null && poster.StartsWith("//", StringComparison.Ordinal))
-        {
-            poster = "https:" + poster;
-        }
+        static string? FixUrl(string? url) => url is not null && url.StartsWith("//", StringComparison.Ordinal) ? "https:" + url : url;
 
         return new CsfdTvTipDto
         {
@@ -192,7 +213,11 @@ public class CsfdTvController : ControllerBase
                 .Select(t => t!.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList(),
-            Poster = poster
+            Poster = FixUrl(detail?.Poster),
+            Photo = FixUrl(detail?.Photo),
+            Overview = detail is null ? null : CsfdText.PickOverview(new[] { detail }, new PluginConfiguration { FallbackCzech = true }),
+            Genres = detail?.Genres,
+            DurationMinutes = detail?.Duration
         };
     }
 }

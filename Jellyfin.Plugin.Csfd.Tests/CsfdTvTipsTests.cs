@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
 using Jellyfin.Plugin.Csfd.Api;
@@ -35,6 +36,26 @@ public class CsfdTvTipsTests
         var tips = CsfdTvTipsClient.ParseTips(Html + Html);
 
         Assert.Equal(2, tips.Count);
+    }
+
+    [Fact]
+    public void Rankings_ParsePositionAndId()
+    {
+        const string page = """
+            <article id="highlight-792366"><figure class="article-img">
+            		<span class="position">
+            			100
+            		</span>
+            		<a href="/film/792366-spider-man-cez-paralelne-svety/prehlad/" title="x">
+            <article><figure><span class="position">1.</span>
+            <a href="/film/2294-vykupenie-z-veznice-shawshank/prehlad/">
+            """;
+        var ranks = new Dictionary<int, int>();
+
+        CsfdRankingsClient.ParseInto(page, ranks);
+
+        Assert.Equal(100, ranks[792366]);
+        Assert.Equal(1, ranks[2294]);
     }
 
     [Fact]
