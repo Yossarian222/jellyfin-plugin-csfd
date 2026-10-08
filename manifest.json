@@ -8,6 +8,14 @@
     "category": "Metadata",
     "versions": [
       {
+        "version": "1.2.0.0",
+        "changelog": "TV tipy: poradie podľa hodnotenia, top chýbajúce tipy (?missing=N) s názvami pre Seerr",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Yossarian222/jellyfin-plugin-csfd/releases/download/v1.2.0/csfd_1.2.0.0.zip",
+        "checksum": "07106f5bd4458859bcee037c653713ee",
+        "timestamp": "2026-10-08T17:55:18Z"
+      },
+      {
         "version": "1.1.3.0",
         "changelog": "TV tipy: súhrn do logu (počet tipov a zhôd)",
         "targetAbi": "12.0.0.0",
