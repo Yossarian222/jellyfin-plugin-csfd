@@ -148,7 +148,7 @@ public sealed class CsfdTvTipsClient
             var html = await http.GetStringAsync(new Uri(Host + path), cancellationToken).ConfigureAwait(false);
             if (!html.Contains("anubis_challenge", StringComparison.Ordinal))
             {
-                return html;
+                return await SortedByRatingAsync(http, path, html, cancellationToken).ConfigureAwait(false);
             }
 
             var solved = SolveChallenge(html);
@@ -169,7 +169,7 @@ public sealed class CsfdTvTipsClient
                 return null;
             }
 
-            return result;
+            return await SortedByRatingAsync(http, path, result, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
@@ -177,5 +177,29 @@ public sealed class CsfdTvTipsClient
             _logger.LogWarning(ex, "ČSFD TV: stránka {Path} sa nepodarila načítať", path);
             return null;
         }
+    }
+
+    /// <summary>
+    /// Prepne stránku na „zoradiť podľa hodnotenia“ (formulár tvTipsOrder, sort=2) – poradie tipov je potom rebríček.
+    /// Ak to nevyjde, ostane chronologické poradie z <paramref name="fallback"/>.
+    /// </summary>
+    private async Task<string> SortedByRatingAsync(HttpClient http, string path, string fallback, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var form = new FormUrlEncodedContent(new Dictionary<string, string> { ["sort"] = "2", ["_do"] = "tvTipsOrder-submit" });
+            using var response = await http.PostAsync(new Uri(Host + path), form, cancellationToken).ConfigureAwait(false);
+            var sorted = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (response.IsSuccessStatusCode && ParseTips(sorted).Count > 0)
+            {
+                return sorted;
+            }
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogDebug(ex, "ČSFD TV: zoradenie podľa hodnotenia zlyhalo");
+        }
+
+        return fallback;
     }
 }
