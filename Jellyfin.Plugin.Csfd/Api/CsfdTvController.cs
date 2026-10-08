@@ -80,6 +80,16 @@ public class CsfdTvController : ControllerBase
                     Recursive = true,
                     Limit = 1
                 }).FirstOrDefault();
+
+                // Položky, ktoré plugin ešte neidentifikoval, nemajú ČSFD ID → skúsime SK názov + rok.
+                item ??= _libraryManager.GetItemList(new InternalItemsQuery(user)
+                {
+                    IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series },
+                    Name = tip.Title,
+                    Years = tip.Year is { } year ? new[] { year } : Array.Empty<int>(),
+                    Recursive = true,
+                    Limit = 1
+                }).FirstOrDefault();
             }
             catch (Exception ex)
             {
