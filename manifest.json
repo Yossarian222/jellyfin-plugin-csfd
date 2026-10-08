@@ -8,6 +8,14 @@
     "category": "Metadata",
     "versions": [
       {
+        "version": "1.1.0.0",
+        "changelog": "TV tipy: slovenský program (csfd.sk/televizia), bez duplicít",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Yossarian222/jellyfin-plugin-csfd/releases/download/v1.1.0/csfd_1.1.0.0.zip",
+        "checksum": "760bdef531f9a5f5f33df4f857d7476d",
+        "timestamp": "2026-10-08T15:21:28Z"
+      },
+      {
         "version": "1.0.1.0",
         "changelog": "Oprava: filmy s číselným názvom (1917) sa už nespárujú s ČSFD ID rovnakého čísla; chybné ID sa pri Replace all metadata opraví samo. Test spojenia sám uloží nastavenia.",
         "targetAbi": "12.0.0.0",
