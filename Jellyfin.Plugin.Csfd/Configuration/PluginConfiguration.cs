@@ -57,4 +57,13 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>Gets or sets the minimal match score (0-100) for automatic identification.</summary>
     public int MinMatchScore { get; set; } = 70;
+
+    /// <summary>Gets or sets the URL of the user's ČSFD profile (ratings are read from it).</summary>
+    public string CsfdProfileUrl { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the ČSFD nick used to rate films.</summary>
+    public string CsfdNick { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the ČSFD password used to rate films.</summary>
+    public string CsfdPassword { get; set; } = string.Empty;
 }

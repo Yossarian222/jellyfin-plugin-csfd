@@ -162,15 +162,19 @@ public sealed class CsfdTvTipsClient
         return http;
     }
 
-    /// <summary>Stiahne stránku csfd.sk; ak ju chráni Anubis, vyrieši výzvu. Null = výzvu sa nepodarilo prejsť.</summary>
-    internal static async Task<string?> GetPageAsync(HttpClient http, string path, ILogger logger, CancellationToken cancellationToken)
+    /// <summary>Stiahne stránku csfd.sk (cesta) alebo inú ČSFD adresu (celá URL); ak ju chráni Anubis, vyrieši výzvu. Null = výzvu sa nepodarilo prejsť.</summary>
+    internal static async Task<string?> GetPageAsync(HttpClient http, string pathOrUrl, ILogger logger, CancellationToken cancellationToken)
     {
-        var html = await http.GetStringAsync(new Uri(Host + path), cancellationToken).ConfigureAwait(false);
-        if (!html.Contains("anubis_challenge", StringComparison.Ordinal))
-        {
-            return html;
-        }
+        var uri = pathOrUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? new Uri(pathOrUrl) : new Uri(Host + pathOrUrl);
+        var html = await http.GetStringAsync(uri, cancellationToken).ConfigureAwait(false);
+        return html.Contains("anubis_challenge", StringComparison.Ordinal)
+            ? await PassAnubisAsync(http, html, uri, logger, cancellationToken).ConfigureAwait(false)
+            : html;
+    }
 
+    /// <summary>Vyrieši výzvu Anubis v <paramref name="html"/> (stránka <paramref name="pageUri"/>) a vráti pôvodnú stránku, alebo null.</summary>
+    internal static async Task<string?> PassAnubisAsync(HttpClient http, string html, Uri pageUri, ILogger logger, CancellationToken cancellationToken)
+    {
         var solved = SolveChallenge(html);
         if (solved is null)
         {
@@ -178,9 +182,9 @@ public sealed class CsfdTvTipsClient
             return null;
         }
 
-        var pass = $"{Host}/.within.website/x/cmd/anubis/api/pass-challenge?id={solved.Value.Id}"
+        var pass = $"{pageUri.GetLeftPart(UriPartial.Authority)}/.within.website/x/cmd/anubis/api/pass-challenge?id={solved.Value.Id}"
             + $"&response={solved.Value.Hash}&nonce={solved.Value.Nonce}"
-            + $"&redir={Uri.EscapeDataString(Host + path)}&elapsedTime=50";
+            + $"&redir={Uri.EscapeDataString(pageUri.ToString())}&elapsedTime=50";
         using var passResponse = await http.GetAsync(new Uri(pass), cancellationToken).ConfigureAwait(false);
         var result = await passResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         if (result.Contains("anubis_challenge", StringComparison.Ordinal))

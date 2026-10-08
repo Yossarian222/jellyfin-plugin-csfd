@@ -54,6 +54,24 @@
                         </div>
                     </div>
 
+                    <div class="verticalSection">
+                        <h2>Môj ČSFD účet</h2>
+                        <p>Hodnotenia sa čítajú z profilu a Wholphinix cez tento účet hodnotí filmy na ČSFD (celé hviezdy, 0 = odpad).</p>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="text" id="CsfdProfileUrl" label="Odkaz na profil" />
+                            <div class="fieldDescription">Napr. https://www.csfd.sk/uzivatel/867446-cloudmaker/prehlad/</div>
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="text" id="CsfdNick" label="Prezývka" autocomplete="off" />
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="password" id="CsfdPassword" label="Heslo" autocomplete="new-password" />
+                            <div class="fieldDescription">Uloží sa v konfigurácii pluginu na serveri.</div>
+                        </div>
+                        <button is="emby-button" type="button" id="csfdTestLogin" class="raised button-alt block"><span>Otestovať prihlásenie</span></button>
+                        <div id="csfdLoginResult" class="fieldDescription" style="margin-top:.5em;"></div>
+                    </div>
+
                     <button is="emby-button" type="submit" class="raised button-submit block"><span>Uložiť</span></button>
                 </form>
             </div>
@@ -61,7 +79,7 @@
         <script type="text/javascript">
             (function () {
                 var pluginId = '6f1c2b0e-8d47-4a3b-9c55-c5fd0a12b7e1';
-                var textFields = ['ApiUrl', 'ApiKey'];
+                var textFields = ['ApiUrl', 'ApiKey', 'CsfdProfileUrl', 'CsfdNick', 'CsfdPassword'];
                 var numberFields = ['RequestDelayMs', 'CacheDays', 'MaxActors', 'MinMatchScore'];
                 var boolFields = ['UseSlovakTitle', 'UseOverview', 'FallbackEnglish', 'FallbackCzech', 'UseRating', 'AlsoCriticRating',
                     'UseGenres', 'UseTags', 'UsePremiereDate', 'UseEpisodes', 'UsePeople'];
@@ -107,6 +125,15 @@
                                 ? 'OK: ' + r.title + ' (' + r.year + ') – ' + r.rating + ' %, ' + r.ms + ' ms'
                                 : 'Chyba: ' + r.message;
                         })
+                        .catch(function (err) { out.textContent = 'Chyba: ' + err; });
+                });
+
+                el('csfdTestLogin').addEventListener('click', function () {
+                    var out = el('csfdLoginResult');
+                    out.textContent = 'Ukladám nastavenia a prihlasujem sa…';
+                    save()
+                        .then(function () { return ApiClient.fetch({ url: ApiClient.getUrl('Plugins/Csfd/TestLogin'), type: 'POST', dataType: 'json' }); })
+                        .then(function (r) { out.textContent = (r.ok ? 'OK: ' : 'Chyba: ') + r.message; })
                         .catch(function (err) { out.textContent = 'Chyba: ' + err; });
                 });
 

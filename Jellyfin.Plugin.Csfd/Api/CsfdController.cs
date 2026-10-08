@@ -15,10 +15,20 @@ namespace Jellyfin.Plugin.Csfd.Api;
 public class CsfdController : ControllerBase
 {
     private readonly CsfdApiClient _client;
+    private readonly CsfdAccountClient _account;
 
-    public CsfdController(CsfdApiClient client)
+    public CsfdController(CsfdApiClient client, CsfdAccountClient account)
     {
         _client = client;
+        _account = account;
+    }
+
+    /// <summary>Overí prihlásenie na ČSFD účet z nastavení.</summary>
+    [HttpPost("TestLogin")]
+    public async Task<ActionResult<object>> TestLogin(CancellationToken cancellationToken = default)
+    {
+        var (ok, message) = await _account.TestLoginAsync(cancellationToken).ConfigureAwait(false);
+        return Ok(new { ok, message });
     }
 
     /// <summary>Otestuje spojenie so sidecarom na ČSFD ID (predvolene Pulp Fiction).</summary>

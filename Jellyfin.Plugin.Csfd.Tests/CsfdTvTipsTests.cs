@@ -59,6 +59,35 @@ public class CsfdTvTipsTests
     }
 
     [Fact]
+    public void Account_ParsesRatingsRows()
+    {
+        const string page = """
+            <tr><td class="name"><h3><a href="/film/708117-1917/prehlad/" class="film-title-name">1917</a></h3></td>
+            <td class="star-rating-only"><span class="star-rating"><span class="stars stars-4"></span></span></td></tr>
+            <tr><td class="name"><h3><a href="/film/1654643-stuart/prehlad/">Stuart</a></h3></td>
+            <td class="star-rating-only"><span class="star-rating"><span class="stars trash"></span></span></td></tr>
+            """;
+        var ratings = new Dictionary<int, int>();
+
+        CsfdAccountClient.ParseRatingsInto(page, ratings);
+
+        Assert.Equal(4, ratings[708117]);
+        Assert.Equal(0, ratings[1654643]);
+    }
+
+    [Fact]
+    public void Account_FindsStarLink()
+    {
+        const string page = """
+            <span class="stars-rating"> <a class="star star-0" href="/film/1/?rating=0&amp;do=rate" data-rating="0"></a>
+            <a class="star star-80" href="/film/1/?rating=80&amp;do=rate" data-rating="80"></a> </span>
+            """;
+
+        Assert.Equal("/film/1/?rating=80&do=rate", CsfdAccountClient.FindStarHref(page, 80));
+        Assert.Null(CsfdAccountClient.FindStarHref(page, 60));
+    }
+
+    [Fact]
     public void UserAgent_IsAValidHeader()
     {
         using var http = new System.Net.Http.HttpClient();

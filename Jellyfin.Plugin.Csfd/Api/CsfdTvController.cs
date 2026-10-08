@@ -70,6 +70,7 @@ public class CsfdTvController : ControllerBase
     private readonly ILogger<CsfdTvController> _logger;
     private readonly CsfdApiClient _client;
     private readonly CsfdRankingsClient _rankings;
+    private readonly CsfdAccountClient _account;
 
     public CsfdTvController(
         CsfdTvTipsClient tips,
@@ -77,14 +78,29 @@ public class CsfdTvController : ControllerBase
         IUserManager userManager,
         ILogger<CsfdTvController> logger,
         CsfdApiClient client,
-        CsfdRankingsClient rankings)
+        CsfdRankingsClient rankings,
+        CsfdAccountClient account)
     {
+        _account = account;
         _tips = tips;
         _client = client;
         _rankings = rankings;
         _libraryManager = libraryManager;
         _userManager = userManager;
         _logger = logger;
+    }
+
+    /// <summary>Moje hodnotenia z ČSFD profilu (nastavený v plugine): ČSFD ID → hviezdy (0 = odpad, 1–5).</summary>
+    [HttpGet("MyRatings")]
+    public async Task<ActionResult<IReadOnlyDictionary<int, int>>> MyRatings(CancellationToken cancellationToken = default)
+        => Ok(await _account.GetMyRatingsAsync(cancellationToken).ConfigureAwait(false));
+
+    /// <summary>Ohodnotí film na ČSFD účtom z nastavení pluginu.</summary>
+    [HttpPost("MyRatings/{csfdId:int}")]
+    public async Task<ActionResult<object>> Rate([FromRoute] int csfdId, [FromQuery] int stars, CancellationToken cancellationToken = default)
+    {
+        var (ok, message) = await _account.RateAsync(csfdId, stars, cancellationToken).ConfigureAwait(false);
+        return Ok(new { ok, message });
     }
 
     /// <summary>Poradie v ČSFD rebríčkoch najlepších filmov a seriálov: ČSFD ID → pozícia.</summary>
