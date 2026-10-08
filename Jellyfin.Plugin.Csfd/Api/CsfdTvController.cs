@@ -114,6 +114,12 @@ public class CsfdTvController : ControllerBase
             });
         }
 
+        _logger.LogInformation(
+            "ČSFD TV: {Tips} tipov z ČSFD, v knižnici {Matched}: {Titles}",
+            tips.Count,
+            result.Count,
+            string.Join(", ", result.Select(r => r.Title)));
+
         return Ok(result
             .OrderByDescending(t => t.RatingPercent ?? -1)
             .Take(Math.Clamp(limit, 1, 30))
