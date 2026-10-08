@@ -22,6 +22,9 @@ public sealed record CsfdTvTip(int CsfdId, string Title, int? Year, string? Time
 public sealed class CsfdTvTipsClient
 {
     private const string Host = "https://www.csfd.sk";
+
+    /// <summary>Len ASCII – HTTP hlavička s „Č“ hodí FormatException.</summary>
+    internal const string UserAgent = "Mozilla/5.0 (X11; Linux x86_64) Jellyfin-Csfd-plugin";
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(3);
 
     private static readonly Regex ArticleSplit = new("<article class=\"article article-poster-78", RegexOptions.Compiled);
@@ -138,7 +141,7 @@ public sealed class CsfdTvTipsClient
         var path = day == 0 ? "/televizia/" : $"/televizia/?day={day}";
         using var handler = new HttpClientHandler { CookieContainer = new CookieContainer(), AllowAutoRedirect = true };
         using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (X11; Linux x86_64) Jellyfin-ČSFD-plugin");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
 
         try
         {
@@ -168,9 +171,10 @@ public sealed class CsfdTvTipsClient
 
             return result;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
-            _logger.LogWarning(ex, "ČSFD TV: stránka {Path} nedostupná", path);
+            // Čokoľvek (sieť, zmenený formát výzvy…) – riadok tipov má byť radšej prázdny než 500.
+            _logger.LogWarning(ex, "ČSFD TV: stránka {Path} sa nepodarila načítať", path);
             return null;
         }
     }

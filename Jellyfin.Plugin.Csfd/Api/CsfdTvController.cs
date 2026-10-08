@@ -9,6 +9,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Csfd.Api;
 
@@ -42,12 +43,14 @@ public class CsfdTvController : ControllerBase
     private readonly CsfdTvTipsClient _tips;
     private readonly ILibraryManager _libraryManager;
     private readonly IUserManager _userManager;
+    private readonly ILogger<CsfdTvController> _logger;
 
-    public CsfdTvController(CsfdTvTipsClient tips, ILibraryManager libraryManager, IUserManager userManager)
+    public CsfdTvController(CsfdTvTipsClient tips, ILibraryManager libraryManager, IUserManager userManager, ILogger<CsfdTvController> logger)
     {
         _tips = tips;
         _libraryManager = libraryManager;
         _userManager = userManager;
+        _logger = logger;
     }
 
     /// <summary>Najlepšie hodnotené TV tipy dňa, ktoré má používateľ v knižnici.</summary>
@@ -67,13 +70,23 @@ public class CsfdTvController : ControllerBase
         var result = new List<CsfdTvTipDto>();
         foreach (var tip in tips)
         {
-            var item = _libraryManager.GetItemList(new InternalItemsQuery(user)
+            BaseItem? item;
+            try
             {
-                IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series },
-                HasAnyProviderId = new Dictionary<string, string> { [Plugin.ProviderKey] = tip.CsfdId.ToString(CultureInfo.InvariantCulture) },
-                Recursive = true,
-                Limit = 1
-            }).FirstOrDefault();
+                item = _libraryManager.GetItemList(new InternalItemsQuery(user)
+                {
+                    IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series },
+                    HasAnyProviderId = new Dictionary<string, string> { [Plugin.ProviderKey] = tip.CsfdId.ToString(CultureInfo.InvariantCulture) },
+                    Recursive = true,
+                    Limit = 1
+                }).FirstOrDefault();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "ČSFD TV: hľadanie {CsfdId} v knižnici zlyhalo", tip.CsfdId);
+                continue;
+            }
+
             if (item is null)
             {
                 continue;

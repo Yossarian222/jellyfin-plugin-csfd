@@ -38,6 +38,13 @@ public class CsfdTvTipsTests
     }
 
     [Fact]
+    public void UserAgent_IsAValidHeader()
+    {
+        using var http = new System.Net.Http.HttpClient();
+        http.DefaultRequestHeaders.UserAgent.ParseAdd(CsfdTvTipsClient.UserAgent);
+    }
+
+    [Fact]
     public void SolveChallenge_FindsHashWithLeadingZeros()
     {
         var page = """<script id="anubis_challenge" type="application/json">{"rules":{"algorithm":"fast","difficulty":2},"challenge":{"id":"abc","randomData":"deadbeef"}}</script>""";
