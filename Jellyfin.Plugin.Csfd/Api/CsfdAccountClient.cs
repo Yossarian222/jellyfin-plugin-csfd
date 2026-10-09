@@ -127,7 +127,8 @@ public sealed class CsfdAccountClient
                 }
 
                 // Rovnaké pole ako po kliknutí na hviezdu (CSFD.SecureHandle vloží kód hviezdy do _value_).
-                await PostFormAsync(
+                var filmUrl = $"https://www.csfd.sk/film/{csfdId}/prehlad/";
+                var after = await PostFormAsync(
                     http,
                     new Uri("https://www.csfd.sk" + form.Value.Action),
                     new Dictionary<string, string>
@@ -136,7 +137,22 @@ public sealed class CsfdAccountClient
                         ["_value_"] = EncodeValue(stars * 20),
                         ["_do"] = "starRating-addRating-form-submit"
                     },
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken,
+                    filmUrl).ConfigureAwait(false);
+
+                // Overenie: po uložení má zvolená hviezda odkaz „#close-dropdown“ (rovnako ako pri už ohodnotenom filme).
+                if (FindStarHref(after, stars * 20) != "#close-dropdown")
+                {
+                    after = await CsfdTvTipsClient.GetPageAsync(http, $"/film/{csfdId}/prehlad/", _logger, cancellationToken).ConfigureAwait(false) ?? string.Empty;
+                    if (FindStarHref(after, stars * 20) != "#close-dropdown")
+                    {
+                        _logger.LogWarning(
+                            "ČSFD účet: hodnotenie {CsfdId} sa neuložilo, odpoveď: {Snippet}",
+                            csfdId,
+                            after[..Math.Min(300, after.Length)]);
+                        return (false, "ČSFD hodnotenie neprijalo.");
+                    }
+                }
 
                 UpdateCache(csfdId, stars);
                 _logger.LogInformation("ČSFD účet: film {CsfdId} ohodnotený {Stars}/5", csfdId, stars);
@@ -249,11 +265,11 @@ public sealed class CsfdAccountClient
     }
 
     /// <summary>Odošle formulár ako prehliadač – CAS aj Nette odmietajú POST bez Origin/Referer z csfd.sk.</summary>
-    private static async Task<string> PostFormAsync(HttpClient http, Uri url, Dictionary<string, string> fields, CancellationToken cancellationToken)
+    private static async Task<string> PostFormAsync(HttpClient http, Uri url, Dictionary<string, string> fields, CancellationToken cancellationToken, string referer = "https://www.csfd.sk/prihlasenie/")
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = new FormUrlEncodedContent(fields) };
         request.Headers.TryAddWithoutValidation("Origin", "https://www.csfd.sk");
-        request.Headers.Referrer = new Uri("https://www.csfd.sk/prihlasenie/");
+        request.Headers.Referrer = new Uri(referer);
         using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
         var html = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
