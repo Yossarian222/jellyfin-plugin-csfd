@@ -13,8 +13,8 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Csfd.Api;
 
-/// <summary>Jeden „TV tip dňa“ zo stránky csfd.sk/televizia.</summary>
-public sealed record CsfdTvTip(int CsfdId, string Title, int? Year, string? Time, string? Channel);
+/// <summary>Jeden „TV tip dňa“ zo stránky csfd.sk/televizia; <paramref name="Thumbnail"/> = malý plagát z tejto stránky (absolútna https URL).</summary>
+public sealed record CsfdTvTip(int CsfdId, string Title, int? Year, string? Time, string? Channel, string? Thumbnail = null);
 
 /// <summary>
 /// Číta „TV tipy dňa“ priamo z csfd.sk/televizia/ (slovenský program; sidecar csfd-api na ne endpoint nemá).
@@ -37,6 +37,15 @@ public sealed class CsfdTvTipsClient
     private static readonly Regex YearRx = new(@"class=""info"">(\d{4})</span>", RegexOptions.Compiled);
     private static readonly Regex TimeRx = new(@"<strong>([^<]+)</strong>", RegexOptions.Compiled);
     private static readonly Regex ChannelRx = new(@"tv-label-btn"">.*?alt=""([^""]*)""", RegexOptions.Compiled | RegexOptions.Singleline);
+    /// <summary>Obrázok v článku tipu je v &lt;figure&gt; (logo stanice v tv-label-btn tam nie je).</summary>
+    private static readonly Regex FigureRx = new(@"<figure\b[^>]*>(.*?)</figure>", RegexOptions.Compiled | RegexOptions.Singleline | RegexOptions.IgnoreCase);
+    private static readonly Regex ImgRx = new(@"<img\b[^>]*>", RegexOptions.Compiled | RegexOptions.Singleline | RegexOptions.IgnoreCase);
+    private static readonly Regex PosterImgRx = new(@"<img\b[^>]*/film/posters/[^>]*>", RegexOptions.Compiled | RegexOptions.Singleline | RegexOptions.IgnoreCase);
+
+    private static readonly Regex AttrRx = new(
+        @"\s(?<name>data-srcset|data-src|srcset|src)\s*=\s*""(?<value>[^""]*)""",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     private static readonly Regex ChallengeRx = new(@"id=""anubis_challenge""[^>]*>(.*?)</script>", RegexOptions.Compiled | RegexOptions.Singleline);
 
     private static readonly SemaphoreSlim Gate = new(1, 1);
@@ -115,15 +124,110 @@ public sealed class CsfdTvTipsClient
             var year = YearRx.Match(part);
             var time = TimeRx.Match(part);
             var channel = ChannelRx.Match(part);
+            var thumbnail = ParseThumbnail(part);
             tips.Add(new CsfdTvTip(
                 csfdId,
                 WebUtility.HtmlDecode(title.Groups[1].Value).Trim(),
                 year.Success ? int.Parse(year.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture) : null,
                 time.Success ? WebUtility.HtmlDecode(time.Groups[1].Value).Trim() : null,
-                channel.Success ? WebUtility.HtmlDecode(channel.Groups[1].Value).Trim() : null));
+                channel.Success ? WebUtility.HtmlDecode(channel.Groups[1].Value).Trim() : null,
+                thumbnail));
         }
 
         return tips;
+    }
+
+    /// <summary>
+    /// Plagát z článku tipu: najväčšia položka srcset (inak src), ako absolútna https URL.
+    /// Null, ak obrázok chýba alebo je to len zástupný obrázok ČSFD.
+    /// </summary>
+    internal static string? ParseThumbnail(string article)
+    {
+        var figure = FigureRx.Match(article);
+        var img = figure.Success ? ImgRx.Match(figure.Groups[1].Value) : PosterImgRx.Match(article);
+        if (!img.Success)
+        {
+            return null;
+        }
+
+        string? src = null;
+        string? srcset = null;
+        foreach (Match a in AttrRx.Matches(img.Value))
+        {
+            var value = WebUtility.HtmlDecode(a.Groups["value"].Value).Trim();
+            switch (a.Groups["name"].Value.ToLowerInvariant())
+            {
+                // data-* (lazy načítanie) má prednosť – v src býva vtedy len zástupný obrázok.
+                case "data-src":
+                    src = value;
+                    break;
+                case "src":
+                    src ??= value;
+                    break;
+                case "data-srcset":
+                    srcset = value;
+                    break;
+                case "srcset":
+                    srcset ??= value;
+                    break;
+            }
+        }
+
+        var best = LargestFromSrcset(srcset) ?? src;
+        if (string.IsNullOrWhiteSpace(best)
+            || best.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
+            || best.Contains("poster-free", StringComparison.OrdinalIgnoreCase)
+            || best.Contains("placeholder", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        if (best.StartsWith("//", StringComparison.Ordinal))
+        {
+            return "https:" + best;
+        }
+
+        if (best.StartsWith('/'))
+        {
+            return Host + best;
+        }
+
+        return best.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ? "https://" + best[7..] : best;
+    }
+
+    /// <summary>Položka srcset s najväčším deskriptorom (2x, 3x alebo 156w); bez deskriptora sa berie ako 1x.</summary>
+    private static string? LargestFromSrcset(string? srcset)
+    {
+        if (string.IsNullOrWhiteSpace(srcset))
+        {
+            return null;
+        }
+
+        string? best = null;
+        var bestSize = double.MinValue;
+        foreach (var entry in srcset.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var bits = entry.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (bits.Length == 0)
+            {
+                continue;
+            }
+
+            var size = 1d;
+            if (bits.Length > 1 && bits[1].Length > 1
+                && double.TryParse(bits[1][..^1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+            {
+                size = parsed;
+            }
+
+            if (size > bestSize)
+            {
+                bestSize = size;
+                best = bits[0];
+            }
+        }
+
+        return best;
     }
 
     /// <summary>Nájde v stránke výzvu Anubis a vráti parametre odpovede, alebo null.</summary>

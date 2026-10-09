@@ -47,8 +47,11 @@ public sealed class CsfdTvTipDto
     /// <summary>Pri chýbajúcom tipe: SK, ČSFD a ďalšie názvy na vyhľadanie v Seerr/TMDb.</summary>
     public List<string>? Titles { get; set; }
 
-    /// <summary>Pri chýbajúcom tipe: plagát z ČSFD.</summary>
+    /// <summary>Pri chýbajúcom tipe: plagát z ČSFD (zo sidecaru, inak <see cref="Thumbnail"/>).</summary>
     public string? Poster { get; set; }
+
+    /// <summary>Malý plagát priamo zo stránky TV tipov (absolútna https URL); aj keď sidecar plagát nemá.</summary>
+    public string? Thumbnail { get; set; }
 
     /// <summary>Pri chýbajúcom tipe: fotka z ČSFD (záloha pozadia).</summary>
     public string? Photo { get; set; }
@@ -220,6 +223,7 @@ public class CsfdTvController : ControllerBase
                 Year = tip.Year,
                 Time = tip.Time,
                 Channel = tip.Channel,
+                Thumbnail = tip.Thumbnail,
                 ItemId = item.Id,
                 InLibrary = true,
                 RatingPercent = item.CommunityRating is { } r ? (int)Math.Round(r * 10) : null
@@ -399,7 +403,8 @@ public class CsfdTvController : ControllerBase
                 .Select(t => t!.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList(),
-            Poster = CsfdMetadataMapper.FixUrl(detail?.Poster),
+            Poster = CsfdMetadataMapper.FixUrl(detail?.Poster) ?? tip.Thumbnail,
+            Thumbnail = tip.Thumbnail,
             Photo = CsfdMetadataMapper.FixUrl(detail?.Photo),
             Overview = detail is null ? null : CsfdText.PickOverview(new[] { detail }, new PluginConfiguration { FallbackCzech = true }),
             Genres = detail?.Genres,

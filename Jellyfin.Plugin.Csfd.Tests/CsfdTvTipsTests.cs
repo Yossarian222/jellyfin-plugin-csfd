@@ -31,6 +31,45 @@ public class CsfdTvTipsTests
     }
 
     [Fact]
+    public void ParseTips_ReadsThumbnailFromFigurePreferringLargestSrcset()
+    {
+        const string page = """
+            <article class="article article-poster-78 updated-article-poster-78">
+            <figure class="article-img"><a href="/film/2294-vykupenie-z-veznice-shawshank/prehlad/" title="Vykúpenie z väznice Shawshank">
+            <img src="//image.pmgstatic.com/cache/resized/w78/files/images/film/posters/162/645/162645_e1ef5a.jpg"
+                 srcset="//image.pmgstatic.com/cache/resized/w156/files/images/film/posters/162/645/162645_e1ef5a.jpg 2x, //image.pmgstatic.com/cache/resized/w234/files/images/film/posters/162/645/162645_e1ef5a.jpg 3x"
+                 alt="Vykúpenie z väznice Shawshank" width="78"></a></figure>
+            <div class="article-content">
+            <h3><a href="/film/2294-vykupenie-z-veznice-shawshank/prehlad/" class="film-title-name">Vykúpenie z väznice Shawshank</a><span class="info">1994</span></h3>
+            <div class="tv-times"><p>dnes <strong>20:30</strong> na
+            <a href="/televizia/program/?schedule=2" class="tv-label-btn"><img src="//image.pmgstatic.com/files/images/tv/logo.png" alt="JOJ Cinema"> JOJ Cinema</a></p></div>
+            </div></article>
+            <article class="article article-poster-78">
+            <figure class="article-img"><a href="/film/9499-dvanact-rozhnevanych-muzu/prehlad/"><img src="//image.pmgstatic.com/cache/resized/w78/files/images/film/posters/158/000/158000_aa.jpg" alt=""></a></figure>
+            <h3><a href="/film/9499-dvanact-rozhnevanych-muzu/prehlad/" class="film-title-name">12 rozhnevaných mužov</a><span class="info">1957</span></h3>
+            </article>
+            <article class="article article-poster-78">
+            <figure class="article-img"><a href="/film/1-x/prehlad/"><img src="//simg.csfd.cz/assets/b/images/poster-free.png" alt=""></a></figure>
+            <h3><a href="/film/1-x/prehlad/" class="film-title-name">Bez plagátu</a></h3>
+            </article>
+            """;
+
+        var tips = CsfdTvTipsClient.ParseTips(page);
+
+        Assert.Equal(3, tips.Count);
+        Assert.Equal("https://image.pmgstatic.com/cache/resized/w234/files/images/film/posters/162/645/162645_e1ef5a.jpg", tips[0].Thumbnail);
+        Assert.Equal("JOJ Cinema", tips[0].Channel);
+        Assert.Equal("https://image.pmgstatic.com/cache/resized/w78/files/images/film/posters/158/000/158000_aa.jpg", tips[1].Thumbnail);
+        Assert.Null(tips[2].Thumbnail);
+    }
+
+    [Fact]
+    public void ParseThumbnail_IgnoresChannelLogoWithoutFigure()
+    {
+        Assert.Null(CsfdTvTipsClient.ParseThumbnail("""<a class="tv-label-btn"><img src="//image.pmgstatic.com/tv/logo.png" alt="Nova"></a>"""));
+    }
+
+    [Fact]
     public void ParseTips_KeepsFirstOccurrenceOfFilmOnMoreChannels()
     {
         var tips = CsfdTvTipsClient.ParseTips(Html + Html);
