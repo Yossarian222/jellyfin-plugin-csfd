@@ -70,8 +70,8 @@ Volajú ich klienti (Wholphinix, Nasflix) s tokenom prihláseného používateľ
 
 | Endpoint | Kto | Čo vráti |
 |---|---|---|
-| `GET /Csfd/TvTips?day=0&limit=10&missing=0` | ktorýkoľvek používateľ | TV tipy dňa (`day` −1…7) zúžené na jeho knižnicu, voliteľne `missing` najlepších chýbajúcich |
 | `GET /Csfd/Watchlist?limit=20&missing=10` | ktorýkoľvek používateľ | „Chcem vidieť“ z ČSFD profilu v nastaveniach (csfd.sk, záloha csfd.cz; súkromný zoznam cez prihlásený účet): najprv tituly v jeho knižnici v poradí z ČSFD, potom `missing` chýbajúcich s detailmi pre Seerr; rovnaký formát ako TvTips, cache 6 h |
+| `GET /Csfd/TvTips?day=0&limit=10&missing=0` | ktorýkoľvek používateľ | TV tipy dňa (`day` −1…7) zúžené na jeho knižnicu, voliteľne `missing` najlepších chýbajúcich; admin alebo API kľúč môže pridať `userId` (knižnica iného používateľa, napr. pre MCP server s API kľúčom) |
 | `GET /Csfd/Ranks` | ktorýkoľvek používateľ | ČSFD ID → pozícia v rebríčkoch najlepších filmov/seriálov |
 | `GET /Csfd/MyRatings` | ktorýkoľvek používateľ | ČSFD ID → hviezdy (0 = odpad, 1–5) z profilu v nastaveniach |
 | `POST /Csfd/MyRatings/{csfdId}?stars=0..5` | používateľ, ak je povolené hodnotenie pre všetkých; inak len admin | `{ ok, message }`; hodnotí účtom z nastavení, najviac 1 hodnotenie za sekundu (inak 429) |
