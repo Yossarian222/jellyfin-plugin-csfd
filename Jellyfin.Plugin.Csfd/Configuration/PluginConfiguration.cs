@@ -69,4 +69,10 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>Gets or sets a value indicating whether every Jellyfin user may rate on ČSFD (otherwise only admins).</summary>
     public bool AllowRatingForAllUsers { get; set; } = true;
+
+    /// <summary>Gets or sets a value indicating whether the nightly task prefetches trivia, TV tips and the watchlist.</summary>
+    public bool PrefetchEnabled { get; set; } = true;
+
+    /// <summary>Gets or sets the delay between items downloaded by the nightly prefetch in milliseconds (minimum 1000).</summary>
+    public int PrefetchDelayMs { get; set; } = 3000;
 }

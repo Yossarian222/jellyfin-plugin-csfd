@@ -42,9 +42,16 @@ public sealed class CsfdTriviaClient
     }
 
     /// <summary>Zaujímavosti v poradí z ČSFD (najlepšie hodnotené prvé); prázdny zoznam, ak žiadne nie sú alebo ČSFD neodpovedá.</summary>
-    public async Task<IReadOnlyList<string>> GetTriviaAsync(int csfdId, CancellationToken cancellationToken)
+    public Task<IReadOnlyList<string>> GetTriviaAsync(int csfdId, CancellationToken cancellationToken)
+        => GetTriviaAsync(csfdId, TimeSpan.Zero, cancellationToken);
+
+    /// <summary>
+    /// Ako <see cref="GetTriviaAsync(int, CancellationToken)"/>, ale cache, ktorej platnosť skončí do <paramref name="refreshMargin"/>,
+    /// sa stiahne znova už teraz (nočné prednačítanie).
+    /// </summary>
+    public async Task<IReadOnlyList<string>> GetTriviaAsync(int csfdId, TimeSpan refreshMargin, CancellationToken cancellationToken)
     {
-        if (Memory.TryGetValue(csfdId, out var hit) && Fresh(hit.At, hit.Items))
+        if (Memory.TryGetValue(csfdId, out var hit) && Fresh(hit.At, hit.Items, refreshMargin))
         {
             return hit.Items;
         }
@@ -67,7 +74,7 @@ public sealed class CsfdTriviaClient
                     cached = null;
                 }
 
-                if (cached is not null && Fresh(at, cached))
+                if (cached is not null && Fresh(at, cached, refreshMargin))
                 {
                     Remember(csfdId, at, cached);
                     return cached;
@@ -120,8 +127,32 @@ public sealed class CsfdTriviaClient
         Memory[csfdId] = (at, items);
     }
 
-    private static bool Fresh(DateTime at, List<string> items)
-        => DateTime.UtcNow - at < (items.Count > 0 ? CacheTtl : EmptyCacheTtl);
+    /// <summary>
+    /// Či treba zaujímavosti stiahnuť: diskový súbor chýba, je poškodený alebo jeho platnosť skončí do <paramref name="refreshMargin"/>.
+    /// Nič nesťahuje; bez dátového priečinka pluginu vráti true.
+    /// </summary>
+    public static bool NeedsRefresh(int csfdId, TimeSpan refreshMargin)
+    {
+        var cacheFile = CacheFile(csfdId);
+        if (cacheFile is null || !File.Exists(cacheFile))
+        {
+            return true;
+        }
+
+        try
+        {
+            var items = JsonSerializer.Deserialize<List<string>>(File.ReadAllText(cacheFile)) ?? new List<string>();
+            return !Fresh(File.GetLastWriteTimeUtc(cacheFile), items, refreshMargin);
+        }
+        catch (Exception ex) when (ex is JsonException or IOException)
+        {
+            return true;
+        }
+    }
+
+    /// <summary>Platí cache z času <paramref name="at"/> ešte aspoň <paramref name="margin"/>?</summary>
+    internal static bool Fresh(DateTime at, List<string> items, TimeSpan margin = default)
+        => DateTime.UtcNow - at + margin < (items.Count > 0 ? CacheTtl : EmptyCacheTtl);
 
     /// <summary>Vytiahne texty zaujímavostí zo stránky (bez autora a bez spoilerov).</summary>
     internal static List<string> ParseTrivia(string html)

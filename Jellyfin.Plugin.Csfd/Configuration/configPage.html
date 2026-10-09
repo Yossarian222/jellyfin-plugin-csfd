@@ -73,6 +73,16 @@
                         <div id="csfdLoginResult" class="fieldDescription" style="margin-top:.5em;"></div>
                     </div>
 
+                    <div class="verticalSection">
+                        <h2>Nočné prednačítanie</h2>
+                        <p>Naplánovaná úloha „ČSFD: nočné prednačítanie“ (Ovládací panel → Naplánované úlohy, predvolene o 3:00) pomaly obnoví zaujímavosti titulov v knižnici, TV tipy na dnes a zajtra a „Chcem vidieť“.</p>
+                        <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" id="PrefetchEnabled" /><span>Zapnuté</span></label>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="number" id="PrefetchDelayMs" min="1000" max="60000" label="Rozostup medzi titulmi (ms)" />
+                            <div class="fieldDescription">Minimum 1000 ms. 3000 ms ≈ 1 200 titulov za hodinu.</div>
+                        </div>
+                    </div>
+
                     <button is="emby-button" type="submit" class="raised button-submit block"><span>Uložiť</span></button>
                 </form>
             </div>
@@ -81,9 +91,9 @@
             (function () {
                 var pluginId = '6f1c2b0e-8d47-4a3b-9c55-c5fd0a12b7e1';
                 var textFields = ['ApiUrl', 'ApiKey', 'CsfdProfileUrl', 'CsfdNick', 'CsfdPassword'];
-                var numberFields = ['RequestDelayMs', 'CacheDays', 'MaxActors', 'MinMatchScore'];
+                var numberFields = ['RequestDelayMs', 'CacheDays', 'MaxActors', 'MinMatchScore', 'PrefetchDelayMs'];
                 var boolFields = ['UseSlovakTitle', 'UseOverview', 'FallbackEnglish', 'FallbackCzech', 'UseRating', 'AlsoCriticRating',
-                    'UseGenres', 'UseTags', 'UsePremiereDate', 'UseEpisodes', 'UsePeople', 'AllowRatingForAllUsers'];
+                    'UseGenres', 'UseTags', 'UsePremiereDate', 'UseEpisodes', 'UsePeople', 'AllowRatingForAllUsers', 'PrefetchEnabled'];
                 var page = document.querySelector('#csfdConfigPage');
 
                 function el(id) { return page.querySelector('#' + id); }

@@ -1,4 +1,7 @@
+using System;
+using System.Collections.Generic;
 using Jellyfin.Plugin.Csfd.Api;
+using Jellyfin.Plugin.Csfd.Tasks;
 using Xunit;
 
 namespace Jellyfin.Plugin.Csfd.Tests;
@@ -35,5 +38,24 @@ public class CsfdTriviaTests
     public void ParseTrivia_EmptyWithoutTriviaSection()
     {
         Assert.Empty(CsfdTriviaClient.ParseTrivia("<html><ul><li>menu</li></ul></html>"));
+    }
+
+    [Fact]
+    public void Fresh_RefreshMarginBringsExpiryForward()
+    {
+        var items = new List<string> { "x" };
+        var at = DateTime.UtcNow - TimeSpan.FromDays(28);
+
+        Assert.True(CsfdTriviaClient.Fresh(at, items));
+        Assert.False(CsfdTriviaClient.Fresh(at, items, CsfdPrefetchTask.TriviaRefreshMargin));
+        Assert.True(CsfdTriviaClient.Fresh(DateTime.UtcNow - TimeSpan.FromDays(20), items, CsfdPrefetchTask.TriviaRefreshMargin));
+    }
+
+    [Fact]
+    public void Prefetch_DelayHasMinimum()
+    {
+        Assert.Equal(1000, CsfdPrefetchTask.EffectiveDelayMs(0));
+        Assert.Equal(1000, CsfdPrefetchTask.EffectiveDelayMs(200));
+        Assert.Equal(3000, CsfdPrefetchTask.EffectiveDelayMs(3000));
     }
 }

@@ -83,6 +83,8 @@ Endpointy pod `/Plugins/Csfd/…` (test spojenia, test prihlásenia, vymazanie c
 
 Každý titul = 1 request (+1 ak chýba SK popis), epizódy 1 request na kus + 1 na sezónu. Pri 2,5 s rozostupe ~1 400 requestov/h. Výsledky sú v cache (predvolene 30 dní) v `/config/plugins/Jellyfin.Plugin.Csfd/cache/`; vymazať sa dá tlačidlom v nastaveniach pluginu.
 
+**Nočné prednačítanie** – naplánovaná úloha „ČSFD: nočné prednačítanie“ (kategória ČSFD, predvolene denne o 3:00, dá sa spustiť ručne v Ovládací panel → Naplánované úlohy) obnoví TV tipy na dnes a zajtra, „Chcem vidieť“ a zaujímavosti všetkých filmov/seriálov s ČSFD ID, ktorým cache chýba alebo vyprší do 3 dní. Rozostup medzi titulmi `PrefetchDelayMs` (predvolene 3000 ms, minimum 1000), vypnúť sa dá `PrefetchEnabled`.
+
 ## Nasflix
 
 Nasflix číta z Jellyfin API `ProviderIds.Csfd` (odkaz/ID), `CommunityRating × 10` = ČSFD %, `Overview` (SK) a `PremiereDate`.
