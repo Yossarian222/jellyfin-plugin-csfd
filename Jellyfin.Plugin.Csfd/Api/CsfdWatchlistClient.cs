@@ -19,7 +19,8 @@ public sealed record CsfdWatchlistItem(int CsfdId, string Title, int? Year);
 
 /// <summary>
 /// Zoznam „Chcem vidieť“ (cz „Chci vidět“) z ČSFD profilu nastaveného v plugine.
-/// Najprv csfd.sk/…/chcem-vidiet/, ak nič, csfd.cz/…/chci-videt/; súkromný zoznam cez prihlásenú reláciu účtu.
+/// Najprv verejný zoznam csfd.sk/…/chcem-vidiet/ a csfd.cz/…/chci-videt/; ak nič, súkromný csfd.cz/soukrome/chci-videt/
+/// cez prihlásenú reláciu účtu.
 /// Cache 6 h v pamäti aj na disku; pri výpadku ostáva stará.
 /// </summary>
 public sealed class CsfdWatchlistClient
@@ -238,6 +239,13 @@ public sealed class CsfdWatchlistClient
         $"https://www.csfd.cz/uzivatel/{profile}/chci-videt/"
     };
 
+    /// <summary>Súkromný zoznam prihláseného vlastníka (predvolené nastavenie ČSFD): CZ, potom SK.</summary>
+    internal static IReadOnlyList<string> PrivateWatchlistUrls() => new[]
+    {
+        "https://www.csfd.cz/soukrome/chci-videt/",
+        "https://www.csfd.sk/sukromne/chcem-vidiet/"
+    };
+
     private static int? FindYear(string text)
     {
         var m = InfoYearRx.Match(text);
@@ -276,8 +284,8 @@ public sealed class CsfdWatchlistClient
 
         if (CsfdAccountClient.HasCredentials)
         {
-            // Súkromný zoznam vidí len prihlásený vlastník.
-            foreach (var url in WatchlistUrls(profile))
+            // Súkromný zoznam vidí len prihlásený vlastník (www.csfd.cz/soukrome/chci-videt/).
+            foreach (var url in PrivateWatchlistUrls())
             {
                 var (items, loaded) = await DownloadListAsync(url, u => _account.GetPageLoggedInAsync(u, cancellationToken), cancellationToken).ConfigureAwait(false);
                 anyPage |= loaded;

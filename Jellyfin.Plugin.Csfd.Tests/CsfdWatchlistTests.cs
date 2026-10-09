@@ -110,4 +110,10 @@ public class CsfdWatchlistTests
             new[] { "https://www.csfd.sk/uzivatel/867446-cloudmaker/chcem-vidiet/", "https://www.csfd.cz/uzivatel/867446-cloudmaker/chci-videt/" },
             CsfdWatchlistClient.WatchlistUrls("867446-cloudmaker"));
     }
+
+    [Fact]
+    public void PrivateWatchlistUrls_StartWithCzechPrivateList()
+    {
+        Assert.Equal("https://www.csfd.cz/soukrome/chci-videt/", CsfdWatchlistClient.PrivateWatchlistUrls()[0]);
+    }
 }
