@@ -21,13 +21,13 @@ public sealed record CsfdWatchlistItem(int CsfdId, string Title, int? Year);
 /// Zoznam „Chcem vidieť“ (cz „Chci vidět“) z ČSFD profilu nastaveného v plugine.
 /// Najprv verejný zoznam csfd.sk/…/chcem-vidiet/ a csfd.cz/…/chci-videt/; ak nič, súkromný csfd.cz/soukrome/chci-videt/
 /// cez prihlásenú reláciu účtu.
-/// Cache 6 h v pamäti aj na disku; pri výpadku ostáva stará.
+/// Cache 3 h v pamäti aj na disku; pri výpadku ostáva stará.
 /// </summary>
 public sealed class CsfdWatchlistClient
 {
     internal const int MaxPages = 5;
 
-    private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(6);
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(3);
 
     private static readonly Regex ProfileRx = new(@"/uzivatel/(\d+-[^/?#]+)", RegexOptions.Compiled);
     /// <summary>Navigácia, bočný panel a skripty – nikdy nie sú súčasťou zoznamu (header nie: ČSFD ním obaľuje aj názov v článku).</summary>
