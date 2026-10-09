@@ -71,6 +71,7 @@ public class CsfdTvController : ControllerBase
     private readonly CsfdApiClient _client;
     private readonly CsfdRankingsClient _rankings;
     private readonly CsfdAccountClient _account;
+    private readonly CsfdTriviaClient _trivia;
 
     public CsfdTvController(
         CsfdTvTipsClient tips,
@@ -79,9 +80,11 @@ public class CsfdTvController : ControllerBase
         ILogger<CsfdTvController> logger,
         CsfdApiClient client,
         CsfdRankingsClient rankings,
-        CsfdAccountClient account)
+        CsfdAccountClient account,
+        CsfdTriviaClient trivia)
     {
         _account = account;
+        _trivia = trivia;
         _tips = tips;
         _client = client;
         _rankings = rankings;
@@ -101,6 +104,14 @@ public class CsfdTvController : ControllerBase
     {
         var (ok, message) = await _account.RateAsync(csfdId, stars, cancellationToken).ConfigureAwait(false);
         return Ok(new { ok, message });
+    }
+
+    /// <summary>Zaujímavosti k filmu/seriálu z ČSFD (najviac <paramref name="limit"/>, bez spoilerov).</summary>
+    [HttpGet("Trivia/{csfdId:int}")]
+    public async Task<ActionResult<IReadOnlyList<string>>> Trivia([FromRoute] int csfdId, [FromQuery] int limit = 4, CancellationToken cancellationToken = default)
+    {
+        var items = await _trivia.GetTriviaAsync(csfdId, cancellationToken).ConfigureAwait(false);
+        return Ok(items.Take(Math.Clamp(limit, 1, 50)).ToList());
     }
 
     /// <summary>Poradie v ČSFD rebríčkoch najlepších filmov a seriálov: ČSFD ID → pozícia.</summary>
