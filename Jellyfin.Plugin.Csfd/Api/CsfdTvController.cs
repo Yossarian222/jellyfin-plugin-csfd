@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Data;
@@ -67,6 +68,8 @@ public sealed class CsfdTvTipDto
 public class CsfdTvController : ControllerBase
 {
     private const string UserIdClaim = "Jellyfin-UserId";
+    private const string IsApiKeyClaim = "Jellyfin-IsApiKey";
+    private const string AdministratorRole = "Administrator";
 
     /// <summary>Najkratší rozostup medzi hodnoteniami (všetci používatelia spolu – hodnotí sa jedným ČSFD účtom).</summary>
     private static readonly TimeSpan RateInterval = TimeSpan.FromSeconds(1);
@@ -160,14 +163,22 @@ public class CsfdTvController : ControllerBase
         => Ok(await _rankings.GetRanksAsync(cancellationToken).ConfigureAwait(false));
 
     /// <summary>Najlepšie hodnotené TV tipy dňa, ktoré má používateľ v knižnici.</summary>
+    /// <param name="userId">Voliteľne iný používateľ – len pre admina alebo API kľúč (ten používateľa nemá), napr. MCP server pre Clauda.</param>
     [HttpGet("TvTips")]
     public async Task<ActionResult<IReadOnlyList<CsfdTvTipDto>>> TvTips(
         [FromQuery] int day = 0,
         [FromQuery] int limit = 10,
         [FromQuery] int missing = 0,
+        [FromQuery] Guid? userId = null,
         CancellationToken cancellationToken = default)
     {
-        if (CurrentUser() is not { } user)
+        var (resolvedId, forbidden) = ResolveUserId(User, userId);
+        if (forbidden)
+        {
+            return Forbid();
+        }
+
+        if (resolvedId is not { } id || _userManager.GetUserById(id) is not { } user)
         {
             return Unauthorized();
         }
@@ -247,11 +258,27 @@ public class CsfdTvController : ControllerBase
             .ToList());
     }
 
-    /// <summary>Používateľ z tokenu (claim Jellyfin-UserId), alebo null.</summary>
+    /// <summary>Používateľ z tokenu (claim Jellyfin-UserId), alebo null (aj pri API kľúči, ten má prázdne ID).</summary>
     private Jellyfin.Database.Implementations.Entities.User? CurrentUser()
+        => ClaimUserId(User) is { } userId ? _userManager.GetUserById(userId) : null;
+
+    /// <summary>ID používateľa z tokenu; null, ak chýba alebo je prázdne (API kľúč).</summary>
+    internal static Guid? ClaimUserId(ClaimsPrincipal principal)
+        => Guid.TryParse(principal.FindFirst(UserIdClaim)?.Value, out var id) && id != Guid.Empty ? id : null;
+
+    /// <summary>
+    /// Za koho sa pýta: bez <paramref name="requested"/> za seba; iného používateľa smie zadať len admin alebo API kľúč.
+    /// </summary>
+    internal static (Guid? UserId, bool Forbidden) ResolveUserId(ClaimsPrincipal principal, Guid? requested)
     {
-        var claim = User.FindFirst(UserIdClaim)?.Value;
-        return Guid.TryParse(claim, out var userId) ? _userManager.GetUserById(userId) : null;
+        var own = ClaimUserId(principal);
+        if (requested is not { } wanted || wanted == Guid.Empty || wanted == own)
+        {
+            return (own, false);
+        }
+
+        var isApiKey = bool.TryParse(principal.FindFirst(IsApiKeyClaim)?.Value, out var apiKey) && apiKey;
+        return isApiKey || principal.IsInRole(AdministratorRole) ? (wanted, false) : (null, true);
     }
 
     /// <summary>Doplní detail zo sidecaru (názvy, hodnotenie, plagát); bez sidecaru ostane len SK názov.</summary>
