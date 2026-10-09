@@ -28,6 +28,9 @@ public sealed class CsfdTriviaClient
     private static readonly Regex TagRx = new(@"<[^>]+>", RegexOptions.Compiled);
     private static readonly Regex SpaceRx = new(@"\s+", RegexOptions.Compiled);
 
+    /// <summary>Strop pamäťovej cache – disková cache stačí, pamäť je len skratka pre častí opakované otvorenia.</summary>
+    private const int MemoryLimit = 2000;
+
     private static readonly SemaphoreSlim Gate = new(1, 1);
     private static readonly ConcurrentDictionary<int, (DateTime At, List<string> Items)> Memory = new();
 
@@ -50,28 +53,48 @@ public sealed class CsfdTriviaClient
         try
         {
             var cacheFile = CacheFile(csfdId);
+            List<string>? cached = null;
             if (cacheFile is not null && File.Exists(cacheFile))
             {
                 var at = File.GetLastWriteTimeUtc(cacheFile);
-                var cached = JsonSerializer.Deserialize<List<string>>(await File.ReadAllTextAsync(cacheFile, cancellationToken).ConfigureAwait(false)) ?? new List<string>();
-                if (Fresh(at, cached))
+                try
                 {
-                    Memory[csfdId] = (at, cached);
+                    cached = JsonSerializer.Deserialize<List<string>>(await File.ReadAllTextAsync(cacheFile, cancellationToken).ConfigureAwait(false)) ?? new List<string>();
+                }
+                catch (JsonException)
+                {
+                    // Poškodený súbor = ako keby nebol.
+                    cached = null;
+                }
+
+                if (cached is not null && Fresh(at, cached))
+                {
+                    Remember(csfdId, at, cached);
                     return cached;
                 }
             }
 
             var items = await DownloadAsync(csfdId, cancellationToken).ConfigureAwait(false);
-            if (items is null)
+            if (items is null || (items.Count == 0 && cached is { Count: > 0 }))
             {
-                // ČSFD neodpovedá – radšej staré zaujímavosti než žiadne.
+                // ČSFD neodpovedá alebo nič nenašlo – radšej staré zaujímavosti než žiadne (a neprepisujeme ich).
+                if (cached is { Count: > 0 })
+                {
+                    // Ďalší pokus o stiahnutie až o deň.
+                    Remember(csfdId, DateTime.UtcNow - CacheTtl + EmptyCacheTtl, cached);
+                    return cached;
+                }
+
                 return Memory.TryGetValue(csfdId, out var stale) ? stale.Items : Array.Empty<string>();
             }
 
-            Memory[csfdId] = (DateTime.UtcNow, items);
+            Remember(csfdId, DateTime.UtcNow, items);
             if (cacheFile is not null)
             {
-                await File.WriteAllTextAsync(cacheFile, JsonSerializer.Serialize(items), cancellationToken).ConfigureAwait(false);
+                // Atomicky: súbor sa nikdy nedá prečítať napoly zapísaný.
+                var tmp = cacheFile + ".tmp";
+                await File.WriteAllTextAsync(tmp, JsonSerializer.Serialize(items), cancellationToken).ConfigureAwait(false);
+                File.Move(tmp, cacheFile, overwrite: true);
             }
 
             return items;
@@ -85,6 +108,16 @@ public sealed class CsfdTriviaClient
         {
             Gate.Release();
         }
+    }
+
+    private static void Remember(int csfdId, DateTime at, List<string> items)
+    {
+        if (Memory.Count >= MemoryLimit)
+        {
+            Memory.Clear();
+        }
+
+        Memory[csfdId] = (at, items);
     }
 
     private static bool Fresh(DateTime at, List<string> items)

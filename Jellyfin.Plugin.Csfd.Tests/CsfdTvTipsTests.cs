@@ -131,4 +131,40 @@ public class CsfdTvTipsTests
         var expected = System.Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("deadbeef" + solved.Value.Nonce))).ToLowerInvariant();
         Assert.Equal(expected, solved.Value.Hash);
     }
+
+    [Fact]
+    public void SolveChallenge_GivesUpOnTooHighDifficulty()
+    {
+        var page = """<script id="anubis_challenge" type="application/json">{"rules":{"algorithm":"fast","difficulty":6},"challenge":{"id":"abc","randomData":"deadbeef"}}</script>""";
+
+        Assert.Null(CsfdTvTipsClient.SolveChallenge(page));
+    }
+
+    [Fact]
+    public void SolveChallenge_StopsOnCancellation()
+    {
+        var page = """<script id="anubis_challenge" type="application/json">{"rules":{"algorithm":"fast","difficulty":5},"challenge":{"id":"abc","randomData":"deadbeef"}}</script>""";
+        using var cts = new System.Threading.CancellationTokenSource();
+        cts.Cancel();
+
+        Assert.Throws<System.OperationCanceledException>(() => CsfdTvTipsClient.SolveChallenge(page, null, cts.Token));
+    }
+
+    [Theory]
+    [InlineData("https://cas.csfd.cz/login?x=1&amp;y=2", "https://cas.csfd.cz/login?x=1&y=2")]
+    [InlineData("/prihlasenie/?do=login", "https://www.csfd.sk/prihlasenie/?do=login")]
+    [InlineData("http://cas.csfd.cz/login", null)]
+    [InlineData("https://evil.example/csfd.cz", null)]
+    [InlineData("https://csfd.cz.evil.example/", null)]
+    public void Account_ResolvesOnlyCsfdHttpsLoginAction(string action, string? expected)
+        => Assert.Equal(expected, CsfdAccountClient.ResolveLoginAction(action, new System.Uri("https://www.csfd.sk/prihlasenie/"))?.ToString());
+
+    [Fact]
+    public void Account_DetectsLoggedInPage()
+    {
+        Assert.True(CsfdAccountClient.IsLoggedInPage("""<a href="/odhlasit/?do=x">Odhlásiť</a>""", "cloudmaker"));
+        Assert.True(CsfdAccountClient.IsLoggedInPage("""<a href="/uzivatel/867446-cloudmaker/prehlad/">""", "CloudMaker"));
+        Assert.False(CsfdAccountClient.IsLoggedInPage("""<p>Recenzia od cloudmaker, odhlásiť sa</p><a href="/prihlasenie/">""", "cloudmaker"));
+        Assert.False(CsfdAccountClient.IsLoggedInPage("""<a href="/uzivatel/1-cloudmakerx/prehlad/">""", "cloudmaker"));
+    }
 }

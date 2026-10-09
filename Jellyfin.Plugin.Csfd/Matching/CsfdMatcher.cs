@@ -226,6 +226,12 @@ public sealed partial class CsfdMatcher
         return detail?.Year is not int csfdYear || Math.Abs(csfdYear - year.Value) > 1;
     }
 
+    /// <summary>
+    /// Najnižšia povolená hranica automatickej zhody: samotný zhodný rok (+30) a typ bez podobnosti názvu
+    /// dá 30, preto musí k hranici prispieť aj názov (50 ≈ aspoň 30 % podobnosť pri zhodnom roku).
+    /// </summary>
+    public const int MinScoreFloor = 50;
+
     /// <summary>Skóre 0–100: podobnosť názvu (max 70) + rok (±30) + typ (−15 pri nezhode).</summary>
     public static int Score(string? candidateTitle, IEnumerable<string?> wanted, int? wantedYear, int? candidateYear, string? candidateType, bool series)
     {

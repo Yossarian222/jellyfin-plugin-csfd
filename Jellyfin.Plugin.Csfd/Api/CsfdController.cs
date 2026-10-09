@@ -60,10 +60,17 @@ public class CsfdController : ControllerBase
         var deleted = 0;
         if (dir is not null && Directory.Exists(dir))
         {
-            foreach (var file in Directory.EnumerateFiles(dir, "*.json"))
+            // Aj podpriečinky (trivia/); súbor, ktorý sa práve používa, preskočíme.
+            foreach (var file in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories))
             {
-                System.IO.File.Delete(file);
-                deleted++;
+                try
+                {
+                    System.IO.File.Delete(file);
+                    deleted++;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                }
             }
         }
 

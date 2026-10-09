@@ -29,6 +29,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         : base(applicationPaths, xmlSerializer)
     {
         Instance = this;
+
+        // Nová prezývka/heslo/profil → stará relácia a cache hodnotení neplatia.
+        ConfigurationChanged += (_, _) => Api.CsfdAccountClient.RequestReset();
     }
 
     /// <summary>Gets the current plugin instance.</summary>

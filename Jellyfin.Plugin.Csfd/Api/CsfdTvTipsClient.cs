@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Security.Cryptography;
@@ -27,6 +28,9 @@ public sealed class CsfdTvTipsClient
     internal const string UserAgent = "Mozilla/5.0 (X11; Linux x86_64) Jellyfin-Csfd-plugin";
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(3);
 
+    /// <summary>Vyššiu obtiažnosť (počet núl v hex) by PoW riešil príliš dlho – vzdáme to.</summary>
+    internal const int MaxDifficulty = 5;
+
     private static readonly Regex ArticleSplit = new("<article class=\"article article-poster-78", RegexOptions.Compiled);
     private static readonly Regex IdRx = new(@"href=""/film/(\d+)-", RegexOptions.Compiled);
     private static readonly Regex TitleRx = new(@"film-title-name"">([^<]+)<", RegexOptions.Compiled);
@@ -36,7 +40,8 @@ public sealed class CsfdTvTipsClient
     private static readonly Regex ChallengeRx = new(@"id=""anubis_challenge""[^>]*>(.*?)</script>", RegexOptions.Compiled | RegexOptions.Singleline);
 
     private static readonly SemaphoreSlim Gate = new(1, 1);
-    private static readonly Dictionary<int, (DateTime At, List<CsfdTvTip> Tips)> Cache = new();
+    private static readonly Dictionary<DateOnly, (DateTime At, List<CsfdTvTip> Tips)> Cache = new();
+    private static readonly TimeZoneInfo Zone = FindZone();
 
     private readonly ILogger<CsfdTvTipsClient> _logger;
 
@@ -48,23 +53,36 @@ public sealed class CsfdTvTipsClient
     /// <summary>Tipy pre deň <paramref name="day"/> (0 = dnes, 1 = zajtra, −1 = včera).</summary>
     public async Task<IReadOnlyList<CsfdTvTip>> GetTipsAsync(int day, CancellationToken cancellationToken)
     {
+        // Cache podľa skutočného dátumu (slovenský čas) – po polnoci nesmú ostať včerajšie tipy pod „dnes“.
+        var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, Zone));
+        var date = today.AddDays(day);
         await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (Cache.TryGetValue(day, out var hit) && DateTime.UtcNow - hit.At < CacheTtl)
+            foreach (var old in Cache.Keys.Where(k => k < today.AddDays(-1)).ToList())
             {
-                return hit.Tips;
+                Cache.Remove(old);
+            }
+
+            Cache.TryGetValue(date, out var stale);
+            if (stale.Tips is not null && DateTime.UtcNow - stale.At < CacheTtl)
+            {
+                return stale.Tips;
             }
 
             var html = await FetchAsync(day, cancellationToken).ConfigureAwait(false);
-            if (html is null)
+            var tips = html is null ? new List<CsfdTvTip>() : ParseTips(html);
+            if (tips.Count == 0 && stale.Tips is { Count: > 0 })
             {
-                // Pri výpadku radšej servírujeme starú cache než nič.
-                return Cache.TryGetValue(day, out var stale) ? stale.Tips : Array.Empty<CsfdTvTip>();
+                // Pri výpadku (alebo zmenenej stránke) radšej servírujeme starú cache než nič – a neprepíšeme ju.
+                return stale.Tips;
             }
 
-            var tips = ParseTips(html);
-            Cache[day] = (DateTime.UtcNow, tips);
+            if (html is not null)
+            {
+                Cache[date] = (DateTime.UtcNow, tips);
+            }
+
             return tips;
         }
         finally
@@ -109,7 +127,7 @@ public sealed class CsfdTvTipsClient
     }
 
     /// <summary>Nájde v stránke výzvu Anubis a vráti parametre odpovede, alebo null.</summary>
-    internal static (string Id, string Hash, long Nonce)? SolveChallenge(string html)
+    internal static (string Id, string Hash, long Nonce)? SolveChallenge(string html, ILogger? logger = null, CancellationToken cancellationToken = default)
     {
         var m = ChallengeRx.Match(html);
         if (!m.Success)
@@ -122,10 +140,21 @@ public sealed class CsfdTvTipsClient
         var challenge = doc.RootElement.GetProperty("challenge");
         var id = challenge.GetProperty("id").GetString()!;
         var data = challenge.GetProperty("randomData").GetString()!;
+        if (difficulty > MaxDifficulty)
+        {
+            logger?.LogWarning("ČSFD: Anubis obtiažnosť {Difficulty} je priveľká (max {Max}), výzvu neriešime", difficulty, MaxDifficulty);
+            return null;
+        }
+
         var prefix = new string('0', difficulty);
 
         for (long nonce = 0; nonce < 50_000_000; nonce++)
         {
+            if ((nonce & 0xFFFF) == 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
             var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(data + nonce))).ToLowerInvariant();
             if (hash.StartsWith(prefix, StringComparison.Ordinal))
             {
@@ -175,7 +204,8 @@ public sealed class CsfdTvTipsClient
     /// <summary>Vyrieši výzvu Anubis v <paramref name="html"/> (stránka <paramref name="pageUri"/>) a vráti pôvodnú stránku, alebo null.</summary>
     internal static async Task<string?> PassAnubisAsync(HttpClient http, string html, Uri pageUri, ILogger logger, CancellationToken cancellationToken)
     {
-        var solved = SolveChallenge(html);
+        // PoW je čisto CPU práca – mimo vlákna požiadavky.
+        var solved = await Task.Run(() => SolveChallenge(html, logger, cancellationToken), cancellationToken).ConfigureAwait(false);
         if (solved is null)
         {
             logger.LogWarning("ČSFD: výzvu Anubis sa nepodarilo vyriešiť");
@@ -187,13 +217,26 @@ public sealed class CsfdTvTipsClient
             + $"&redir={Uri.EscapeDataString(pageUri.ToString())}&elapsedTime=50";
         using var passResponse = await http.GetAsync(new Uri(pass), cancellationToken).ConfigureAwait(false);
         var result = await passResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        if (result.Contains("anubis_challenge", StringComparison.Ordinal))
+        if (!passResponse.IsSuccessStatusCode || result.Contains("anubis_challenge", StringComparison.Ordinal))
         {
             logger.LogWarning("ČSFD: Anubis odpoveď neprijal ({Status})", (int)passResponse.StatusCode);
             return null;
         }
 
         return result;
+    }
+
+    /// <summary>Časové pásmo ČSFD programu; bez tzdata v kontajneri ostane UTC.</summary>
+    private static TimeZoneInfo FindZone()
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("Europe/Bratislava");
+        }
+        catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            return TimeZoneInfo.Utc;
+        }
     }
 
     /// <summary>

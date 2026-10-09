@@ -49,7 +49,7 @@
                             <input is="emby-input" type="number" id="MaxActors" min="0" max="100" label="Max. počet hercov" />
                         </div>
                         <div class="inputContainer">
-                            <input is="emby-input" type="number" id="MinMatchScore" min="30" max="100" label="Minimálne skóre zhody (0–100)" />
+                            <input is="emby-input" type="number" id="MinMatchScore" min="50" max="100" label="Minimálne skóre zhody (50–100)" />
                             <div class="fieldDescription">Pod touto hranicou sa titul automaticky nepriradí (dá sa ručne cez Identifikovať – ČSFD URL alebo ID).</div>
                         </div>
                     </div>
@@ -68,6 +68,7 @@
                             <input is="emby-input" type="password" id="CsfdPassword" label="Heslo" autocomplete="new-password" />
                             <div class="fieldDescription">Uloží sa v konfigurácii pluginu na serveri.</div>
                         </div>
+                        <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" id="AllowRatingForAllUsers" /><span>Hodnotiť môžu všetci používatelia Jellyfinu (inak len administrátori)</span></label>
                         <button is="emby-button" type="button" id="csfdTestLogin" class="raised button-alt block"><span>Otestovať prihlásenie</span></button>
                         <div id="csfdLoginResult" class="fieldDescription" style="margin-top:.5em;"></div>
                     </div>
@@ -82,7 +83,7 @@
                 var textFields = ['ApiUrl', 'ApiKey', 'CsfdProfileUrl', 'CsfdNick', 'CsfdPassword'];
                 var numberFields = ['RequestDelayMs', 'CacheDays', 'MaxActors', 'MinMatchScore'];
                 var boolFields = ['UseSlovakTitle', 'UseOverview', 'FallbackEnglish', 'FallbackCzech', 'UseRating', 'AlsoCriticRating',
-                    'UseGenres', 'UseTags', 'UsePremiereDate', 'UseEpisodes', 'UsePeople'];
+                    'UseGenres', 'UseTags', 'UsePremiereDate', 'UseEpisodes', 'UsePeople', 'AllowRatingForAllUsers'];
                 var page = document.querySelector('#csfdConfigPage');
 
                 function el(id) { return page.querySelector('#' + id); }

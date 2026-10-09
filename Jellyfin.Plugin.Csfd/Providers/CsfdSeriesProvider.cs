@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
@@ -66,7 +67,7 @@ public class CsfdSeriesProvider : IRemoteMetadataProvider<Series, SeriesInfo>, I
         var result = new MetadataResult<Series>();
         var config = CsfdMetadataMapper.Config;
 
-        var id = await _matcher.FindBestIdAsync(info, true, config.MinMatchScore, cancellationToken).ConfigureAwait(false);
+        var id = await _matcher.FindBestIdAsync(info, true, Math.Clamp(config.MinMatchScore, CsfdMatcher.MinScoreFloor, 100), cancellationToken).ConfigureAwait(false);
         if (!id.HasValue)
         {
             return result;

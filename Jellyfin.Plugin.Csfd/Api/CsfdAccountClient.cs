@@ -18,6 +18,10 @@ namespace Jellyfin.Plugin.Csfd.Api;
 public sealed class CsfdAccountClient
 {
     private static readonly TimeSpan RatingsTtl = TimeSpan.FromMinutes(10);
+
+    /// <summary>Po neúspešnom prihlásení chvíľu neskúšame znova (ČSFD by účet mohlo zablokovať).</summary>
+    private static readonly TimeSpan LoginCooldown = TimeSpan.FromMinutes(10);
+
     private static readonly Regex ProfileRx = new(@"/uzivatel/(\d+-[^/]+)/", RegexOptions.Compiled);
     private static readonly Regex RowFilmRx = new(@"href=""/film/(\d+)-", RegexOptions.Compiled);
     private static readonly Regex RowStarsRx = new(@"class=""stars (?:stars-(\d)|trash)", RegexOptions.Compiled);
@@ -29,6 +33,8 @@ public sealed class CsfdAccountClient
     private static DateTime _ratingsAt = DateTime.MinValue;
     private static HttpClient? _session;
     private static bool _loggedIn;
+    private static DateTime _loginFailedAt = DateTime.MinValue;
+    private static volatile bool _resetRequested;
 
     private readonly ILogger<CsfdAccountClient> _logger;
 
@@ -51,6 +57,7 @@ public sealed class CsfdAccountClient
         await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            ApplyReset();
             if (_ratings is not null && DateTime.UtcNow - _ratingsAt < RatingsTtl)
             {
                 return _ratings;
@@ -98,11 +105,12 @@ public sealed class CsfdAccountClient
         await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            ApplyReset();
             for (var attempt = 1; attempt <= 2; attempt++)
             {
                 if (!_loggedIn)
                 {
-                    var (ok, message) = await LoginCoreAsync(cancellationToken).ConfigureAwait(false);
+                    var (ok, message) = await LoginAsync(cancellationToken).ConfigureAwait(false);
                     if (!ok)
                     {
                         return (false, message);
@@ -111,10 +119,21 @@ public sealed class CsfdAccountClient
 
                 var http = _session!;
                 var film = await CsfdTvTipsClient.GetPageAsync(http, $"/film/{csfdId}/prehlad/", _logger, cancellationToken).ConfigureAwait(false);
-                var form = film is null ? null : FindRatingForm(film);
+                if (film is null)
+                {
+                    return (false, "Stránku filmu na ČSFD sa nepodarilo načítať.");
+                }
+
+                var form = FindRatingForm(film);
                 if (form is null)
                 {
-                    // Bez formulára „form-stars-add“ nie sme prihlásení (relácia vypršala) – prihlásime sa znova.
+                    if (IsLoggedInPage(film, Config.CsfdNick))
+                    {
+                        // Relácia platí, len formulár chýba (iný typ titulu, zmenený web) – nové prihlásenie by nepomohlo.
+                        return (false, "Formulár hodnotenia sa na stránke filmu nenašiel.");
+                    }
+
+                    // Bez formulára „form-stars-add“ a bez odhlásenia nie sme prihlásení (relácia vypršala) – prihlásime sa znova.
                     _loggedIn = false;
                     continue;
                 }
@@ -178,13 +197,50 @@ public sealed class CsfdAccountClient
         await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            ApplyReset();
             _loggedIn = false;
-            return await LoginCoreAsync(cancellationToken).ConfigureAwait(false);
+            return await LoginAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "ČSFD účet: test prihlásenia zlyhal");
+            return (false, ex.Message);
         }
         finally
         {
             Gate.Release();
         }
+    }
+
+    /// <summary>Po zmene nastavení zahodí reláciu, cooldown aj cache hodnotení (uplatní sa pri ďalšom volaní pod zámkom).</summary>
+    internal static void RequestReset() => _resetRequested = true;
+
+    /// <summary>Je stránka zobrazená prihlásenému používateľovi? Odkaz na odhlásenie alebo na vlastný profil.</summary>
+    internal static bool IsLoggedInPage(string html, string? nick)
+    {
+        if (html.Contains("/odhlasit/", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        nick = nick?.Trim();
+        return !string.IsNullOrEmpty(nick)
+            && Regex.IsMatch(html, $@"href=""(?:https://www\.csfd\.(?:sk|cz))?/uzivatel/\d+-{Regex.Escape(nick)}/", RegexOptions.IgnoreCase);
+    }
+
+    /// <summary>Cieľ prihlasovacieho formulára: absolútna https URL na ČSFD (relatívnu rozrieši voči stránke), inak null.</summary>
+    internal static Uri? ResolveLoginAction(string action, Uri page)
+    {
+        if (!Uri.TryCreate(page, WebUtility.HtmlDecode(action), out var uri))
+        {
+            return null;
+        }
+
+        var host = uri.Host;
+        return uri.Scheme == Uri.UriSchemeHttps
+            && (host.EndsWith(".csfd.cz", StringComparison.OrdinalIgnoreCase) || host.EndsWith(".csfd.sk", StringComparison.OrdinalIgnoreCase))
+            ? uri
+            : null;
     }
 
     internal static void ParseRatingsInto(string html, IDictionary<int, int> ratings)
@@ -241,10 +297,27 @@ public sealed class CsfdAccountClient
 
     private static void UpdateCache(int csfdId, int stars)
     {
+        // Nový slovník namiesto úpravy – volajúci GetMyRatingsAsync ho môžu práve serializovať.
         if (_ratings is not null)
         {
-            _ratings[csfdId] = stars;
+            _ratings = new Dictionary<int, int>(_ratings) { [csfdId] = stars };
         }
+    }
+
+    private static void ApplyReset()
+    {
+        if (!_resetRequested)
+        {
+            return;
+        }
+
+        _resetRequested = false;
+        _session?.Dispose();
+        _session = null;
+        _loggedIn = false;
+        _loginFailedAt = DateTime.MinValue;
+        _ratings = null;
+        _ratingsAt = DateTime.MinValue;
     }
 
     /// <summary>Odkaz hviezdy v bloku „Klikni a hodnoť“ (data-rating 0–100 po 20).</summary>
@@ -280,6 +353,26 @@ public sealed class CsfdAccountClient
         return html;
     }
 
+    /// <summary>Prihlásenie s ochranou: po neúspechu ďalší pokus až po <see cref="LoginCooldown"/>.</summary>
+    private async Task<(bool Ok, string Message)> LoginAsync(CancellationToken cancellationToken)
+    {
+        var wait = _loginFailedAt + LoginCooldown - DateTime.UtcNow;
+        if (wait > TimeSpan.Zero)
+        {
+            return (false, $"Prihlásenie na ČSFD nedávno zlyhalo – ďalší pokus o {Math.Ceiling(wait.TotalMinutes)} min (alebo po uložení nastavení).");
+        }
+
+        try
+        {
+            return await LoginCoreAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            _loginFailedAt = DateTime.UtcNow;
+            throw;
+        }
+    }
+
     private async Task<(bool Ok, string Message)> LoginCoreAsync(CancellationToken cancellationToken)
     {
         var config = Config;
@@ -294,10 +387,19 @@ public sealed class CsfdAccountClient
         var form = login is null ? Match.Empty : LoginFormRx.Match(login);
         if (!form.Success)
         {
+            _loginFailedAt = DateTime.UtcNow;
             return (false, "Prihlasovací formulár ČSFD sa nenašiel (zmenil sa web?).");
         }
 
-        var action = new Uri(WebUtility.HtmlDecode(form.Groups[1].Value));
+        // Heslo posielame len na ČSFD cez https.
+        var action = ResolveLoginAction(form.Groups[1].Value, new Uri("https://www.csfd.sk/prihlasenie/"));
+        if (action is null)
+        {
+            _loginFailedAt = DateTime.UtcNow;
+            _logger.LogWarning("ČSFD účet: prihlasovací formulár mieri mimo ČSFD ({Action}), heslo neposielam", form.Groups[1].Value);
+            return (false, "Prihlasovací formulár ČSFD mieri na neočakávanú adresu – heslo sa neposlalo.");
+        }
+
         var fields = new Dictionary<string, string>
         {
             ["nick"] = config.CsfdNick.Trim(),
@@ -316,13 +418,13 @@ public sealed class CsfdAccountClient
         var error = FlashErrorRx.Match(html);
         if (error.Success)
         {
+            _loginFailedAt = DateTime.UtcNow;
             return (false, "ČSFD: " + WebUtility.HtmlDecode(error.Groups[1].Value).Trim());
         }
 
         var check = await CsfdTvTipsClient.GetPageAsync(_session, "/", _logger, cancellationToken).ConfigureAwait(false) ?? html;
-        _loggedIn = check.Contains("/odhlasit/", StringComparison.Ordinal)
-            || check.Contains(config.CsfdNick.Trim(), StringComparison.OrdinalIgnoreCase)
-            || check.Contains("odhlásiť", StringComparison.OrdinalIgnoreCase);
+        _loggedIn = IsLoggedInPage(check, config.CsfdNick);
+        _loginFailedAt = _loggedIn ? DateTime.MinValue : DateTime.UtcNow;
         _logger.LogInformation("ČSFD účet: prihlásenie {Result}", _loggedIn ? "OK" : "zlyhalo");
         return _loggedIn ? (true, "Prihlásenie na ČSFD je OK.") : (false, "Prihlásenie na ČSFD zlyhalo – skontroluj prezývku a heslo.");
     }

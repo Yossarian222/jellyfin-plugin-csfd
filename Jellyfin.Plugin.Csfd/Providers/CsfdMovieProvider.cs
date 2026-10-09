@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
@@ -69,7 +70,7 @@ public class CsfdMovieProvider : IRemoteMetadataProvider<Movie, MovieInfo>, IHas
         var result = new MetadataResult<Movie>();
         var config = CsfdMetadataMapper.Config;
 
-        var id = await _matcher.FindBestIdAsync(info, false, config.MinMatchScore, cancellationToken).ConfigureAwait(false);
+        var id = await _matcher.FindBestIdAsync(info, false, Math.Clamp(config.MinMatchScore, CsfdMatcher.MinScoreFloor, 100), cancellationToken).ConfigureAwait(false);
         if (!id.HasValue)
         {
             return result;

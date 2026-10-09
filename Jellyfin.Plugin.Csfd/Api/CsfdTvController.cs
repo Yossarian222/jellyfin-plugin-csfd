@@ -4,12 +4,16 @@ using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Data;
 using Jellyfin.Data.Enums;
+using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.Csfd.Configuration;
 using Jellyfin.Plugin.Csfd.Matching;
+using Jellyfin.Plugin.Csfd.Providers;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 
@@ -64,6 +68,11 @@ public class CsfdTvController : ControllerBase
 {
     private const string UserIdClaim = "Jellyfin-UserId";
 
+    /// <summary>Najkratší rozostup medzi hodnoteniami (všetci používatelia spolu – hodnotí sa jedným ČSFD účtom).</summary>
+    private static readonly TimeSpan RateInterval = TimeSpan.FromSeconds(1);
+    private static readonly object RateLock = new();
+    private static DateTime _lastRateAt = DateTime.MinValue;
+
     private readonly CsfdTvTipsClient _tips;
     private readonly ILibraryManager _libraryManager;
     private readonly IUserManager _userManager;
@@ -100,9 +109,35 @@ public class CsfdTvController : ControllerBase
 
     /// <summary>Ohodnotí film na ČSFD účtom z nastavení pluginu.</summary>
     [HttpPost("MyRatings/{csfdId:int}")]
-    public async Task<ActionResult<object>> Rate([FromRoute] int csfdId, [FromQuery] int stars, CancellationToken cancellationToken = default)
+    public async Task<ActionResult<object>> Rate([FromRoute] int csfdId, [FromQuery] int? stars, CancellationToken cancellationToken = default)
     {
-        var (ok, message) = await _account.RateAsync(csfdId, stars, cancellationToken).ConfigureAwait(false);
+        if (CurrentUser() is not { } user)
+        {
+            return Unauthorized();
+        }
+
+        if (Plugin.Instance?.Configuration.AllowRatingForAllUsers == false && !user.HasPermission(PermissionKind.IsAdministrator))
+        {
+            return Forbid();
+        }
+
+        if (csfdId <= 0 || stars is not (>= 0 and <= 5))
+        {
+            return BadRequest(new { ok = false, message = "Neplatné ČSFD ID alebo počet hviezd (0–5)." });
+        }
+
+        lock (RateLock)
+        {
+            var now = DateTime.UtcNow;
+            if (now - _lastRateAt < RateInterval)
+            {
+                return StatusCode(StatusCodes.Status429TooManyRequests, new { ok = false, message = "Príliš rýchlo za sebou – skús o chvíľu." });
+            }
+
+            _lastRateAt = now;
+        }
+
+        var (ok, message) = await _account.RateAsync(csfdId, stars.Value, cancellationToken).ConfigureAwait(false);
         return Ok(new { ok, message });
     }
 
@@ -110,6 +145,11 @@ public class CsfdTvController : ControllerBase
     [HttpGet("Trivia/{csfdId:int}")]
     public async Task<ActionResult<IReadOnlyList<string>>> Trivia([FromRoute] int csfdId, [FromQuery] int limit = 4, CancellationToken cancellationToken = default)
     {
+        if (csfdId <= 0)
+        {
+            return BadRequest();
+        }
+
         var items = await _trivia.GetTriviaAsync(csfdId, cancellationToken).ConfigureAwait(false);
         return Ok(items.Take(Math.Clamp(limit, 1, 50)).ToList());
     }
@@ -127,13 +167,12 @@ public class CsfdTvController : ControllerBase
         [FromQuery] int missing = 0,
         CancellationToken cancellationToken = default)
     {
-        var claim = User.FindFirst(UserIdClaim)?.Value;
-        if (!Guid.TryParse(claim, out var userId) || _userManager.GetUserById(userId) is not { } user)
+        if (CurrentUser() is not { } user)
         {
             return Unauthorized();
         }
 
-        var tips = await _tips.GetTipsAsync(day, cancellationToken).ConfigureAwait(false);
+        var tips = await _tips.GetTipsAsync(Math.Clamp(day, -1, 7), cancellationToken).ConfigureAwait(false);
         var result = new List<CsfdTvTipDto>();
         var notInLibrary = new List<CsfdTvTip>();
         foreach (var tip in tips)
@@ -208,6 +247,13 @@ public class CsfdTvController : ControllerBase
             .ToList());
     }
 
+    /// <summary>Používateľ z tokenu (claim Jellyfin-UserId), alebo null.</summary>
+    private Jellyfin.Database.Implementations.Entities.User? CurrentUser()
+    {
+        var claim = User.FindFirst(UserIdClaim)?.Value;
+        return Guid.TryParse(claim, out var userId) ? _userManager.GetUserById(userId) : null;
+    }
+
     /// <summary>Doplní detail zo sidecaru (názvy, hodnotenie, plagát); bez sidecaru ostane len SK názov.</summary>
     private async Task<CsfdTvTipDto> ToMissingDtoAsync(CsfdTvTip tip, CancellationToken cancellationToken)
     {
@@ -223,7 +269,6 @@ public class CsfdTvController : ControllerBase
 
         var titles = new List<string?> { tip.Title, detail?.Title };
         titles.AddRange(detail?.TitlesOther?.Select(t => t.Title) ?? Enumerable.Empty<string?>());
-        static string? FixUrl(string? url) => url is not null && url.StartsWith("//", StringComparison.Ordinal) ? "https:" + url : url;
 
         return new CsfdTvTipDto
         {
@@ -240,8 +285,8 @@ public class CsfdTvController : ControllerBase
                 .Select(t => t!.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList(),
-            Poster = FixUrl(detail?.Poster),
-            Photo = FixUrl(detail?.Photo),
+            Poster = CsfdMetadataMapper.FixUrl(detail?.Poster),
+            Photo = CsfdMetadataMapper.FixUrl(detail?.Photo),
             Overview = detail is null ? null : CsfdText.PickOverview(new[] { detail }, new PluginConfiguration { FallbackCzech = true }),
             Genres = detail?.Genres,
             DurationMinutes = detail?.Duration

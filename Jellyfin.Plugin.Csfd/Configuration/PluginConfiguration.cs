@@ -66,4 +66,7 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>Gets or sets the ČSFD password used to rate films.</summary>
     public string CsfdPassword { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets a value indicating whether every Jellyfin user may rate on ČSFD (otherwise only admins).</summary>
+    public bool AllowRatingForAllUsers { get; set; } = true;
 }

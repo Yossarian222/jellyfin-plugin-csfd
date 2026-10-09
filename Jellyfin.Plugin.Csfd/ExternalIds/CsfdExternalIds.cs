@@ -68,7 +68,7 @@ public class CsfdExternalUrlProvider : IExternalUrlProvider
             && !string.IsNullOrWhiteSpace(id))
         {
             // ČSFD presmeruje /film/{id}/ na správny slug (aj pri sezónach a epizódach).
-            yield return $"https://www.csfd.sk/film/{id}/prehled/";
+            yield return $"https://www.csfd.sk/film/{id}/prehlad/";
         }
     }
 }
