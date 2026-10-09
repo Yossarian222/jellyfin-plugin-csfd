@@ -218,10 +218,9 @@ public sealed class CsfdAccountClient
     /// <summary>Je stránka zobrazená prihlásenému používateľovi? Odkaz na odhlásenie alebo na vlastný profil.</summary>
     internal static bool IsLoggedInPage(string html, string? nick)
     {
-        // Odkaz na odhlásenie (aj text pre prípad, že ČSFD zmení adresu) – vidno ho len prihlásenému.
+        // Odkaz na odhlásenie (aj podľa textu odkazu pre prípad, že ČSFD zmení adresu) – vidno ho len prihlásenému.
         if (html.Contains("/odhlasit/", StringComparison.Ordinal)
-            || html.Contains("odhlásiť", StringComparison.OrdinalIgnoreCase)
-            || html.Contains("odhlásit", StringComparison.OrdinalIgnoreCase))
+            || Regex.IsMatch(html, @">\s*Odhlásit[ťe]?\s*</a>", RegexOptions.IgnoreCase))
         {
             return true;
         }
