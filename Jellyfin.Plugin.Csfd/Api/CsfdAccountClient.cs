@@ -191,6 +191,47 @@ public sealed class CsfdAccountClient
         }
     }
 
+    /// <summary>Je v nastaveniach vyplnená prezývka aj heslo (dá sa prihlásiť)?</summary>
+    internal static bool HasCredentials => !string.IsNullOrWhiteSpace(Config.CsfdNick) && !string.IsNullOrEmpty(Config.CsfdPassword);
+
+    /// <summary>
+    /// Stiahne ČSFD stránku (cesta na csfd.sk alebo celá URL) v prihlásenej relácii – napr. súkromný „Chcem vidieť“.
+    /// Null, ak účet nie je nastavený, prihlásenie zlyhalo alebo stránka neprešla cez Anubis.
+    /// </summary>
+    internal async Task<string?> GetPageLoggedInAsync(string pathOrUrl, CancellationToken cancellationToken)
+    {
+        if (!HasCredentials)
+        {
+            return null;
+        }
+
+        await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ApplyReset();
+            if (!_loggedIn)
+            {
+                var (ok, message) = await LoginAsync(cancellationToken).ConfigureAwait(false);
+                if (!ok)
+                {
+                    _logger.LogInformation("ČSFD účet: stránku {Page} nečítam prihlásený – {Message}", pathOrUrl, message);
+                    return null;
+                }
+            }
+
+            return await CsfdTvTipsClient.GetPageAsync(_session!, pathOrUrl, _logger, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "ČSFD účet: stránka {Page} sa nepodarila načítať prihlásený", pathOrUrl);
+            return null;
+        }
+        finally
+        {
+            Gate.Release();
+        }
+    }
+
     /// <summary>Overí prihlásenie (pre tlačidlo v nastaveniach).</summary>
     public async Task<(bool Ok, string Message)> TestLoginAsync(CancellationToken cancellationToken)
     {

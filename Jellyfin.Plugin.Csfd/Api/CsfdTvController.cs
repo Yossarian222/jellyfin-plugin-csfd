@@ -81,6 +81,7 @@ public class CsfdTvController : ControllerBase
     private readonly CsfdRankingsClient _rankings;
     private readonly CsfdAccountClient _account;
     private readonly CsfdTriviaClient _trivia;
+    private readonly CsfdWatchlistClient _watchlist;
 
     public CsfdTvController(
         CsfdTvTipsClient tips,
@@ -90,8 +91,10 @@ public class CsfdTvController : ControllerBase
         CsfdApiClient client,
         CsfdRankingsClient rankings,
         CsfdAccountClient account,
-        CsfdTriviaClient trivia)
+        CsfdTriviaClient trivia,
+        CsfdWatchlistClient watchlist)
     {
+        _watchlist = watchlist;
         _account = account;
         _trivia = trivia;
         _tips = tips;
@@ -180,23 +183,7 @@ public class CsfdTvController : ControllerBase
             BaseItem? item;
             try
             {
-                item = _libraryManager.GetItemList(new InternalItemsQuery(user)
-                {
-                    IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series },
-                    HasAnyProviderId = new Dictionary<string, string> { [Plugin.ProviderKey] = tip.CsfdId.ToString(CultureInfo.InvariantCulture) },
-                    Recursive = true,
-                    Limit = 1
-                }).FirstOrDefault();
-
-                // Položky, ktoré plugin ešte neidentifikoval, nemajú ČSFD ID → skúsime SK názov + rok.
-                item ??= _libraryManager.GetItemList(new InternalItemsQuery(user)
-                {
-                    IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series },
-                    Name = tip.Title,
-                    Years = tip.Year is { } year ? new[] { year } : Array.Empty<int>(),
-                    Recursive = true,
-                    Limit = 1
-                }).FirstOrDefault();
+                item = FindInLibrary(user, tip.CsfdId, tip.Title, tip.Year);
             }
             catch (Exception ex)
             {
@@ -247,11 +234,111 @@ public class CsfdTvController : ControllerBase
             .ToList());
     }
 
+    /// <summary>
+    /// „Chcem vidieť“ z ČSFD profilu (nastavený v plugine): najprv tituly v knižnici používateľa (v poradí z ČSFD),
+    /// potom najviac <paramref name="missing"/> chýbajúcich s detailmi pre Seerr.
+    /// </summary>
+    [HttpGet("Watchlist")]
+    public async Task<ActionResult<IReadOnlyList<CsfdTvTipDto>>> Watchlist(
+        [FromQuery] int limit = 20,
+        [FromQuery] int missing = 10,
+        CancellationToken cancellationToken = default)
+    {
+        if (CurrentUser() is not { } user)
+        {
+            return Unauthorized();
+        }
+
+        var entries = await _watchlist.GetWatchlistAsync(cancellationToken).ConfigureAwait(false);
+        var maxInLibrary = Math.Clamp(limit, 1, 50);
+        var maxMissing = Math.Clamp(missing, 0, 20);
+        var result = new List<CsfdTvTipDto>();
+        var notInLibrary = new List<CsfdTvTip>();
+        var seen = new HashSet<Guid>();
+        foreach (var entry in entries)
+        {
+            if (result.Count >= maxInLibrary && notInLibrary.Count >= maxMissing)
+            {
+                break;
+            }
+
+            BaseItem? item;
+            try
+            {
+                item = FindInLibrary(user, entry.CsfdId, entry.Title, entry.Year);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "ČSFD Chcem vidieť: hľadanie {CsfdId} v knižnici zlyhalo", entry.CsfdId);
+                continue;
+            }
+
+            if (item is null)
+            {
+                if (notInLibrary.Count < maxMissing)
+                {
+                    notInLibrary.Add(new CsfdTvTip(entry.CsfdId, entry.Title, entry.Year, null, null));
+                }
+
+                continue;
+            }
+
+            if (result.Count >= maxInLibrary || !seen.Add(item.Id))
+            {
+                continue;
+            }
+
+            result.Add(new CsfdTvTipDto
+            {
+                CsfdId = entry.CsfdId,
+                Title = item.Name,
+                Year = entry.Year ?? item.ProductionYear,
+                ItemId = item.Id,
+                InLibrary = true,
+                RatingPercent = item.CommunityRating is { } r ? (int)Math.Round(r * 10) : null
+            });
+        }
+
+        _logger.LogInformation(
+            "ČSFD Chcem vidieť: {Count} položiek z ČSFD, v knižnici {Matched}, chýbajúcich {Missing}",
+            entries.Count,
+            result.Count,
+            notInLibrary.Count);
+
+        foreach (var entry in notInLibrary)
+        {
+            result.Add(await ToMissingDtoAsync(entry, cancellationToken).ConfigureAwait(false));
+        }
+
+        return Ok(result);
+    }
+
     /// <summary>Používateľ z tokenu (claim Jellyfin-UserId), alebo null.</summary>
     private Jellyfin.Database.Implementations.Entities.User? CurrentUser()
     {
         var claim = User.FindFirst(UserIdClaim)?.Value;
         return Guid.TryParse(claim, out var userId) ? _userManager.GetUserById(userId) : null;
+    }
+
+    /// <summary>Titul v knižnici používateľa: podľa ČSFD ID, inak (ešte neidentifikované pluginom) podľa názvu a roku.</summary>
+    private BaseItem? FindInLibrary(Jellyfin.Database.Implementations.Entities.User user, int csfdId, string title, int? year)
+    {
+        var item = _libraryManager.GetItemList(new InternalItemsQuery(user)
+        {
+            IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series },
+            HasAnyProviderId = new Dictionary<string, string> { [Plugin.ProviderKey] = csfdId.ToString(CultureInfo.InvariantCulture) },
+            Recursive = true,
+            Limit = 1
+        }).FirstOrDefault();
+
+        return item ?? _libraryManager.GetItemList(new InternalItemsQuery(user)
+        {
+            IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series },
+            Name = title,
+            Years = year is { } y ? new[] { y } : Array.Empty<int>(),
+            Recursive = true,
+            Limit = 1
+        }).FirstOrDefault();
     }
 
     /// <summary>Doplní detail zo sidecaru (názvy, hodnotenie, plagát); bez sidecaru ostane len SK názov.</summary>
