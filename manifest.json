@@ -8,6 +8,14 @@
     "category": "Metadata",
     "versions": [
       {
+        "version": "1.5.1.0",
+        "changelog": "Opravy z bezpečnostnej revízie: validácia hodnotenia (0–5, rate limit, voliteľne len admin), cooldown prihlásenia, overenie cieľa hesla, Anubis s limitom, cache bez prepisovania prázdnymi dátami, TV tipy podľa dátumu.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Yossarian222/jellyfin-plugin-csfd/releases/download/v1.5.1/csfd_1.5.1.0.zip",
+        "checksum": "0ab8b484687c752ba7b14c5e883d67ee",
+        "timestamp": "2026-10-09T07:34:37Z"
+      },
+      {
         "version": "1.5.0.0",
         "changelog": "ČSFD zaujímavosti: endpoint /Csfd/Trivia/{id} pre Wholphinix (zaujímavosti v detaile filmu/seriálu).",
         "targetAbi": "12.0.0.0",
