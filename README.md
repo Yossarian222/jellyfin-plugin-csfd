@@ -3,10 +3,12 @@
 Metadata provider pre **Jellyfin 12.x**: slovenské názvy a popisy, hlavné hodnotenie ČSFD, dátumy premiér (SK → CZ), žánre, sezóny a epizódy. Obrázky a herci zostávajú z TMDb (hybrid), ČSFD ich iba dopĺňa.
 
 ```
-Jellyfin ──► Jellyfin.Plugin.Csfd ──► csfd-api (Docker, NAS :3080) ──► ČSFD (Anubis PoW, throttling)
+Jellyfin ──► Jellyfin.Plugin.Csfd ──► csfd-api (Docker, NAS :3080) ──► ČSFD     (metadáta)
+                     └──────────────────────────────────────────────► csfd.sk/cz (TV tipy, rebríčky, zaujímavosti, hodnotenie)
 ```
 
-Parsovanie ČSFD a riešenie Anubis výzvy robí [node-csfd-api](https://github.com/bartholomej/node-csfd-api) v kontajneri. Plugin je tenký klient s cache a párovaním.
+**Metadáta** (názvy, popisy, hodnotenie, premiéry, epizódy) parsuje [node-csfd-api](https://github.com/bartholomej/node-csfd-api) v kontajneri; plugin k nim pridáva cache a párovanie.
+**TV tipy, rebríčky, zaujímavosti a hodnotenie filmov** sidecar nemá – tieto stránky plugin sťahuje z csfd.sk/csfd.cz sám a výzvu Anubis (proof-of-work) rieši tiež sám.
 
 ## 1. Sidecar csfd-api (Portainer)
 
@@ -55,6 +57,26 @@ Potom *Scan → Replace all metadata* (obrázky nemusíš nahrádzať).
 ### Ručné priradenie
 
 *Identify* → do poľa názvu vlož ČSFD URL (`https://www.csfd.sk/film/8852-…/`), `csfd:8852` alebo len `8852`.
+
+### Môj ČSFD účet
+
+V nastaveniach pluginu sa dá zadať odkaz na ČSFD profil (čítanie vlastných hodnotení) a prezývka + heslo (hodnotenie filmov z klienta).
+Heslo je uložené v konfigurácii pluginu na serveri; konfiguráciu pluginu vidia a menia len administrátori Jellyfinu.
+Voľba **Hodnotiť môžu všetci používatelia** (predvolene zapnutá) – po vypnutí môžu hodnotiť len administrátori (napr. kvôli deťom a hosťom).
+
+## Endpointy pre klientov
+
+Volajú ich klienti (Wholphinix, Nasflix) s tokenom prihláseného používateľa Jellyfinu (`Authorization: MediaBrowser Token=…`).
+
+| Endpoint | Kto | Čo vráti |
+|---|---|---|
+| `GET /Csfd/TvTips?day=0&limit=10&missing=0` | ktorýkoľvek používateľ | TV tipy dňa (`day` −1…7) zúžené na jeho knižnicu, voliteľne `missing` najlepších chýbajúcich |
+| `GET /Csfd/Ranks` | ktorýkoľvek používateľ | ČSFD ID → pozícia v rebríčkoch najlepších filmov/seriálov |
+| `GET /Csfd/MyRatings` | ktorýkoľvek používateľ | ČSFD ID → hviezdy (0 = odpad, 1–5) z profilu v nastaveniach |
+| `POST /Csfd/MyRatings/{csfdId}?stars=0..5` | používateľ, ak je povolené hodnotenie pre všetkých; inak len admin | `{ ok, message }`; hodnotí účtom z nastavení, najviac 1 hodnotenie za sekundu (inak 429) |
+| `GET /Csfd/Trivia/{csfdId}?limit=4` | ktorýkoľvek používateľ | zaujímavosti k titulu (bez spoilerov) |
+
+Endpointy pod `/Plugins/Csfd/…` (test spojenia, test prihlásenia, vymazanie cache) sú len pre administrátorov.
 
 ## Výkon
 

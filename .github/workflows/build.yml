@@ -17,7 +17,12 @@ on:
         default: ''
 
 permissions:
-  contents: write
+  contents: read
+
+# Dve vydania naraz by si prepisovali manifest – druhé počká.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   # Verzia Jellyfin NuGet balíkov a cieľové ABI v manifeste.
@@ -27,6 +32,9 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Zápis potrebuje len krok Release + manifest (release, push manifestu); pull_request z forku dostane token aj tak len na čítanie.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -47,10 +55,14 @@ jobs:
           else
             V="0.0.${GITHUB_RUN_NUMBER}"
           fi
+          # Len čísla s bodkami – verzia ide do výstupov, názvov súborov a príkazov.
+          if [[ ! "$V" =~ ^[0-9]+(\.[0-9]+){0,3}$ ]]; then
+            echo "::error::Neplatná verzia '$V' (očakávam napr. 1.2.3)"
+            exit 1
+          fi
           echo "tag=v${V}" >> "$GITHUB_OUTPUT"
           echo "release=${RELEASE}" >> "$GITHUB_OUTPUT"
-          # Jellyfin chce 4-zložkovú číselnú verziu (v1.2.0-beta → 1.2.0.0)
-          V="${V%%-*}"
+          # Jellyfin chce 4-zložkovú číselnú verziu (1.2.0 → 1.2.0.0)
           IFS='.' read -r a b c d <<< "$V"
           echo "version=${a:-0}.${b:-0}.${c:-0}.${d:-0}" >> "$GITHUB_OUTPUT"
 
@@ -58,13 +70,15 @@ jobs:
         run: dotnet test Jellyfin.Plugin.Csfd.Tests -c Release -p:JellyfinVersion=${JELLYFIN_VERSION}
 
       - name: Build
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
           dotnet publish Jellyfin.Plugin.Csfd -c Release -o out \
             -p:JellyfinVersion=${JELLYFIN_VERSION} \
-            -p:AssemblyVersion=${{ steps.ver.outputs.version }} \
-            -p:FileVersion=${{ steps.ver.outputs.version }}
+            -p:AssemblyVersion="${VERSION}" \
+            -p:FileVersion="${VERSION}"
           mkdir -p dist
-          cd out && zip -j "../dist/csfd_${{ steps.ver.outputs.version }}.zip" Jellyfin.Plugin.Csfd.dll
+          cd out && zip -j "../dist/csfd_${VERSION}.zip" Jellyfin.Plugin.Csfd.dll
 
       - uses: actions/upload-artifact@v4
         with:

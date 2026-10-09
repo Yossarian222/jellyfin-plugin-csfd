@@ -15,7 +15,7 @@ services:
     environment:
       - PORT=3000
       # Plugin posiela jazyk v každom requeste (?language=sk|cs|en).
-      - API_KEY=${CSFD_API_KEY}
+      - API_KEY=${CSFD_API_KEY:?CSFD_API_KEY musí byť nastavený}
       - API_KEY_NAME=x-api-key
       - TZ=Europe/Bratislava
     labels:
