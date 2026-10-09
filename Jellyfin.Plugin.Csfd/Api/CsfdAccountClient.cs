@@ -22,6 +22,7 @@ public sealed class CsfdAccountClient
     private static readonly Regex RowFilmRx = new(@"href=""/film/(\d+)-", RegexOptions.Compiled);
     private static readonly Regex RowStarsRx = new(@"class=""stars (?:stars-(\d)|trash)", RegexOptions.Compiled);
     private static readonly Regex LoginFormRx = new(@"<form action=""([^""]+)""[^>]*id=""frm-loginForm""", RegexOptions.Compiled);
+    private static readonly Regex FlashErrorRx = new(@"flash-message-error"">([^<]+)<", RegexOptions.Compiled);
     private static readonly SemaphoreSlim Gate = new(1, 1);
 
     private static Dictionary<int, int>? _ratings;
@@ -126,17 +127,16 @@ public sealed class CsfdAccountClient
                 }
 
                 // Rovnaké pole ako po kliknutí na hviezdu (CSFD.SecureHandle vloží kód hviezdy do _value_).
-                using var body = new FormUrlEncodedContent(new Dictionary<string, string>
-                {
-                    ["_token_"] = form.Value.Token,
-                    ["_value_"] = EncodeValue(stars * 20),
-                    ["_do"] = "starRating-addRating-form-submit"
-                });
-                using var response = await http.PostAsync(new Uri("https://www.csfd.sk" + form.Value.Action), body, cancellationToken).ConfigureAwait(false);
-                if (!response.IsSuccessStatusCode)
-                {
-                    return (false, $"ČSFD vrátilo HTTP {(int)response.StatusCode}");
-                }
+                await PostFormAsync(
+                    http,
+                    new Uri("https://www.csfd.sk" + form.Value.Action),
+                    new Dictionary<string, string>
+                    {
+                        ["_token_"] = form.Value.Token,
+                        ["_value_"] = EncodeValue(stars * 20),
+                        ["_do"] = "starRating-addRating-form-submit"
+                    },
+                    cancellationToken).ConfigureAwait(false);
 
                 UpdateCache(csfdId, stars);
                 _logger.LogInformation("ČSFD účet: film {CsfdId} ohodnotený {Stars}/5", csfdId, stars);
@@ -248,6 +248,22 @@ public sealed class CsfdAccountClient
         return null;
     }
 
+    /// <summary>Odošle formulár ako prehliadač – CAS aj Nette odmietajú POST bez Origin/Referer z csfd.sk.</summary>
+    private static async Task<string> PostFormAsync(HttpClient http, Uri url, Dictionary<string, string> fields, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = new FormUrlEncodedContent(fields) };
+        request.Headers.TryAddWithoutValidation("Origin", "https://www.csfd.sk");
+        request.Headers.Referrer = new Uri("https://www.csfd.sk/prihlasenie/");
+        using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        var html = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException($"ČSFD vrátilo HTTP {(int)response.StatusCode}: {html[..Math.Min(200, html.Length)]}");
+        }
+
+        return html;
+    }
+
     private async Task<(bool Ok, string Message)> LoginCoreAsync(CancellationToken cancellationToken)
     {
         var config = Config;
@@ -266,28 +282,25 @@ public sealed class CsfdAccountClient
         }
 
         var action = new Uri(WebUtility.HtmlDecode(form.Groups[1].Value));
-        using var body = new FormUrlEncodedContent(new Dictionary<string, string>
+        var fields = new Dictionary<string, string>
         {
             ["nick"] = config.CsfdNick.Trim(),
             ["password"] = config.CsfdPassword,
             ["permanent"] = "1",
             ["_do"] = "loginForm-submit"
-        });
-        using var response = await _session.PostAsync(action, body, cancellationToken).ConfigureAwait(false);
-        var html = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        };
+        var html = await PostFormAsync(_session, action, fields, cancellationToken).ConfigureAwait(false);
         if (html.Contains("anubis_challenge", StringComparison.Ordinal))
         {
             // Anubis aj na cas.csfd.cz – po vyriešení odošleme formulár znova.
             await CsfdTvTipsClient.PassAnubisAsync(_session, html, action, _logger, cancellationToken).ConfigureAwait(false);
-            using var body2 = new FormUrlEncodedContent(new Dictionary<string, string>
-            {
-                ["nick"] = config.CsfdNick.Trim(),
-                ["password"] = config.CsfdPassword,
-                ["permanent"] = "1",
-                ["_do"] = "loginForm-submit"
-            });
-            using var retry = await _session.PostAsync(action, body2, cancellationToken).ConfigureAwait(false);
-            html = await retry.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            html = await PostFormAsync(_session, action, fields, cancellationToken).ConfigureAwait(false);
+        }
+
+        var error = FlashErrorRx.Match(html);
+        if (error.Success)
+        {
+            return (false, "ČSFD: " + WebUtility.HtmlDecode(error.Groups[1].Value).Trim());
         }
 
         var check = await CsfdTvTipsClient.GetPageAsync(_session, "/", _logger, cancellationToken).ConfigureAwait(false) ?? html;
