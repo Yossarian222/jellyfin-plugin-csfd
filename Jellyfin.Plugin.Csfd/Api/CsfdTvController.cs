@@ -11,6 +11,7 @@ using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.Csfd.Configuration;
 using Jellyfin.Plugin.Csfd.Matching;
 using Jellyfin.Plugin.Csfd.Providers;
+using Jellyfin.Plugin.Csfd.Seasonal;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Authorization;
@@ -79,6 +80,8 @@ public class CsfdTvController : ControllerBase
     private static readonly object RateLock = new();
     private static DateTime _lastRateAt = DateTime.MinValue;
 
+    private static readonly BaseItemKind[] MovieAndSeries = { BaseItemKind.Movie, BaseItemKind.Series };
+
     private readonly CsfdTvTipsClient _tips;
     private readonly ILibraryManager _libraryManager;
     private readonly IUserManager _userManager;
@@ -88,6 +91,7 @@ public class CsfdTvController : ControllerBase
     private readonly CsfdAccountClient _account;
     private readonly CsfdTriviaClient _trivia;
     private readonly CsfdWatchlistClient _watchlist;
+    private readonly CsfdSeasonalClient _seasonal;
 
     public CsfdTvController(
         CsfdTvTipsClient tips,
@@ -98,8 +102,10 @@ public class CsfdTvController : ControllerBase
         CsfdRankingsClient rankings,
         CsfdAccountClient account,
         CsfdTriviaClient trivia,
-        CsfdWatchlistClient watchlist)
+        CsfdWatchlistClient watchlist,
+        CsfdSeasonalClient seasonal)
     {
+        _seasonal = seasonal;
         _watchlist = watchlist;
         _account = account;
         _trivia = trivia;
@@ -328,6 +334,107 @@ public class CsfdTvController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>
+    /// Sviatočné odporúčania (<paramref name="event"/>: newyear, valentine, easter, halloween, nicholas, christmas) z kurátorovaného
+    /// zoznamu: najprv tituly v knižnici používateľa, potom najviac <paramref name="missing"/> chýbajúcich s detailmi pre Seerr;
+    /// v oboch skupinách podľa hodnotenia ČSFD zostupne, spolu najviac <paramref name="limit"/>. Formát ako TvTips (Time/Channel sú null).
+    /// </summary>
+    /// <param name="userId">Voliteľne iný používateľ – len pre admina alebo API kľúč (ako pri TvTips).</param>
+    [HttpGet("Seasonal")]
+    public async Task<ActionResult<IReadOnlyList<CsfdTvTipDto>>> Seasonal(
+        [FromQuery(Name = "event")] string? @event,
+        [FromQuery] int limit = 20,
+        [FromQuery] int missing = 20,
+        [FromQuery] Guid? userId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (SeasonalCatalog.NormalizeEvent(@event) is not { } eventKey)
+        {
+            return BadRequest(new { message = "Neznámy sviatok – povolené: " + string.Join(", ", SeasonalCatalog.EventKeys) });
+        }
+
+        var (resolvedId, forbidden) = ResolveUserId(User, userId);
+        if (forbidden)
+        {
+            return Forbid();
+        }
+
+        if (resolvedId is not { } id || _userManager.GetUserById(id) is not { } user)
+        {
+            return Unauthorized();
+        }
+
+        var maxTotal = Math.Clamp(limit, 1, 50);
+        var maxMissing = Math.Clamp(missing, 0, 20);
+        var entries = SeasonalCatalog.Get(eventKey);
+        var inLibrary = new List<CsfdTvTipDto>();
+        var notInLibrary = new List<SeasonalEntry>();
+        var seen = new HashSet<Guid>();
+        foreach (var entry in entries)
+        {
+            BaseItem? item;
+            try
+            {
+                item = FindInLibrary(user, entry.CsfdId, entry.TmdbId, entry.MediaType, entry.Year, entry.LocalTitle, entry.Title);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "ČSFD sviatky: hľadanie {Title} v knižnici zlyhalo", entry.Title);
+                continue;
+            }
+
+            if (item is null)
+            {
+                notInLibrary.Add(entry);
+                continue;
+            }
+
+            if (!seen.Add(item.Id))
+            {
+                continue;
+            }
+
+            inLibrary.Add(new CsfdTvTipDto
+            {
+                CsfdId = entry.CsfdId ?? CsfdIdOf(item) ?? 0,
+                Title = item.Name,
+                Year = entry.Year ?? item.ProductionYear,
+                ItemId = item.Id,
+                InLibrary = true,
+                RatingPercent = item.CommunityRating is { } r ? (int)Math.Round(r * 10) : null
+            });
+        }
+
+        var result = inLibrary
+            .OrderByDescending(t => t.RatingPercent ?? -1)
+            .Take(maxTotal)
+            .ToList();
+
+        var missingSlots = Math.Min(maxMissing, maxTotal - result.Count);
+        if (missingSlots > 0)
+        {
+            var missingDtos = new List<CsfdTvTipDto>();
+            foreach (var entry in notInLibrary)
+            {
+                var detail = entry.CsfdId is { } csfdId
+                    ? await _seasonal.GetDetailAsync(csfdId, cancellationToken).ConfigureAwait(false)
+                    : null;
+                missingDtos.Add(ToSeasonalMissingDto(entry, detail));
+            }
+
+            result.AddRange(missingDtos.OrderByDescending(t => t.RatingPercent ?? -1).Take(missingSlots));
+        }
+
+        _logger.LogInformation(
+            "ČSFD sviatky {Event}: {Count} titulov, v knižnici {Matched}, chýbajúcich vrátených {Missing}",
+            eventKey,
+            entries.Count,
+            inLibrary.Count,
+            result.Count(r => !r.InLibrary));
+
+        return Ok(result);
+    }
+
     /// <summary>Používateľ z tokenu (claim Jellyfin-UserId), alebo null (aj pri API kľúči, ten má prázdne ID).</summary>
     private Jellyfin.Database.Implementations.Entities.User? CurrentUser()
         => ClaimUserId(User) is { } userId ? _userManager.GetUserById(userId) : null;
@@ -354,23 +461,105 @@ public class CsfdTvController : ControllerBase
     /// <summary>Titul v knižnici používateľa: podľa ČSFD ID, inak (ešte neidentifikované pluginom) podľa názvu a roku.</summary>
     private BaseItem? FindInLibrary(Jellyfin.Database.Implementations.Entities.User user, int csfdId, string title, int? year)
     {
-        var item = _libraryManager.GetItemList(new InternalItemsQuery(user)
+        var item = FindByProviderId(user, Plugin.ProviderKey, csfdId, MovieAndSeries);
+        return item ?? FindByName(user, title, year is { } y ? new[] { y } : Array.Empty<int>(), MovieAndSeries);
+    }
+
+    /// <summary>
+    /// Titul zo sviatočného výberu v knižnici: podľa ČSFD ID, potom TMDb ID (len správny typ – TMDb má pre filmy a seriály
+    /// samostatné číslovanie), nakoniec podľa názvov s tolerantným rokom (±1, ČSFD a TMDb sa občas o rok líšia).
+    /// </summary>
+    private BaseItem? FindInLibrary(
+        Jellyfin.Database.Implementations.Entities.User user,
+        int? csfdId,
+        int? tmdbId,
+        string? mediaType,
+        int? year,
+        params string?[] titles)
+    {
+        var kinds = string.Equals(mediaType, "tv", StringComparison.OrdinalIgnoreCase)
+            ? new[] { BaseItemKind.Series }
+            : new[] { BaseItemKind.Movie };
+
+        if (csfdId is { } c && FindByProviderId(user, Plugin.ProviderKey, c, MovieAndSeries) is { } byCsfd)
         {
-            IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series },
-            HasAnyProviderId = new Dictionary<string, string> { [Plugin.ProviderKey] = csfdId.ToString(CultureInfo.InvariantCulture) },
+            return byCsfd;
+        }
+
+        if (tmdbId is { } t && FindByProviderId(user, MediaBrowser.Model.Entities.MetadataProvider.Tmdb.ToString(), t, kinds) is { } byTmdb)
+        {
+            return byTmdb;
+        }
+
+        var years = year is { } y ? new[] { y - 1, y, y + 1 } : Array.Empty<int>();
+        foreach (var title in titles.Where(t => !string.IsNullOrWhiteSpace(t)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (FindByName(user, title!, years, kinds) is { } byName)
+            {
+                return byName;
+            }
+        }
+
+        return null;
+    }
+
+    private BaseItem? FindByProviderId(Jellyfin.Database.Implementations.Entities.User user, string provider, int id, BaseItemKind[] kinds)
+        => _libraryManager.GetItemList(new InternalItemsQuery(user)
+        {
+            IncludeItemTypes = kinds,
+            HasAnyProviderId = new Dictionary<string, string> { [provider] = id.ToString(CultureInfo.InvariantCulture) },
             Recursive = true,
             Limit = 1
         }).FirstOrDefault();
 
-        return item ?? _libraryManager.GetItemList(new InternalItemsQuery(user)
+    private BaseItem? FindByName(Jellyfin.Database.Implementations.Entities.User user, string title, int[] years, BaseItemKind[] kinds)
+        => _libraryManager.GetItemList(new InternalItemsQuery(user)
         {
-            IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series },
+            IncludeItemTypes = kinds,
             Name = title,
-            Years = year is { } y ? new[] { y } : Array.Empty<int>(),
+            Years = years,
             Recursive = true,
             Limit = 1
         }).FirstOrDefault();
+
+    /// <summary>ČSFD ID z položky knižnice (ak ju už plugin identifikoval).</summary>
+    private static int? CsfdIdOf(BaseItem item)
+        => item.ProviderIds.TryGetValue(Plugin.ProviderKey, out var v) && int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out var id) ? id : null;
+
+    /// <summary>
+    /// Chýbajúci sviatočný titul pre klienta: názvy na vyhľadanie v Seerr (CZ/SK, originál, ČSFD), typ z kurátorovaného zoznamu,
+    /// hodnotenie a plagát z ČSFD (ak je ČSFD ID známe). Bez ČSFD ID: CsfdId = 0, bez hodnotenia a plagátu.
+    /// </summary>
+    internal static CsfdTvTipDto ToSeasonalMissingDto(SeasonalEntry entry, CsfdMovie? detail)
+    {
+        var titles = new List<string?> { detail?.Title, entry.LocalTitle, entry.Title };
+        titles.AddRange(detail?.TitlesOther?.Select(t => t.Title) ?? Enumerable.Empty<string?>());
+        var poster = CsfdMetadataMapper.FixUrl(detail?.Poster);
+
+        return new CsfdTvTipDto
+        {
+            CsfdId = entry.CsfdId ?? 0,
+            Title = FirstNonEmpty(detail?.Title, entry.LocalTitle, entry.Title),
+            Year = entry.Year ?? detail?.Year,
+            InLibrary = false,
+            RatingPercent = detail?.Rating,
+            MediaType = string.Equals(entry.MediaType, "tv", StringComparison.OrdinalIgnoreCase) ? "tv" : "movie",
+            Titles = titles
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .Select(t => t!.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList(),
+            Poster = poster,
+            Thumbnail = poster,
+            Photo = CsfdMetadataMapper.FixUrl(detail?.Photo),
+            Overview = detail is null ? null : CsfdText.PickOverview(new[] { detail }, new PluginConfiguration { FallbackCzech = true }),
+            Genres = detail?.Genres,
+            DurationMinutes = detail?.Duration
+        };
     }
+
+    private static string FirstNonEmpty(params string?[] values)
+        => values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v))?.Trim() ?? string.Empty;
 
     /// <summary>Doplní detail zo sidecaru (názvy, hodnotenie, plagát); bez sidecaru ostane len SK názov.</summary>
     private async Task<CsfdTvTipDto> ToMissingDtoAsync(CsfdTvTip tip, CancellationToken cancellationToken)

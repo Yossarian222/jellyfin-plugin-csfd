@@ -1,6 +1,7 @@
 using Jellyfin.Plugin.Csfd.Api;
 using Jellyfin.Plugin.Csfd.Matching;
 using Jellyfin.Plugin.Csfd.Providers;
+using Jellyfin.Plugin.Csfd.Seasonal;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
@@ -19,6 +20,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<CsfdAccountClient>();
         serviceCollection.AddSingleton<CsfdTriviaClient>();
         serviceCollection.AddSingleton<CsfdWatchlistClient>();
+        serviceCollection.AddSingleton<CsfdSeasonalClient>();
         serviceCollection.AddSingleton<CsfdMatcher>();
         serviceCollection.AddSingleton<CsfdMetadataMapper>();
         serviceCollection.AddSingleton<CsfdSeriesStructure>();
