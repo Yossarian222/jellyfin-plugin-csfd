@@ -136,4 +136,21 @@ public class CsfdWatchlistTests
             new[] { new CsfdWatchlistItem(245218, "Box", 2009), new CsfdWatchlistItem(1290063, "Lanterns", 2026), new CsfdWatchlistItem(9499, "Silent Hill", 2006) },
             items);
     }
+
+    [Fact]
+    public void ParseWatchlist_OwnerListWithoutRowContainers()
+    {
+        var html = """
+            <main><section class="box"><header class="box-header"><h2>Chcem vidieť <span class="count">(3)</span></h2></header>
+            <form><div class="box-content">
+            <div class="row"><input type="checkbox" name="w[]"><a href="/film/245218-box/" class="film-title-name">Box</a> <span class="info">2009</span> USA Dráma</div>
+            <div class="row"><input type="checkbox" name="w[]"><a href="/film/1290063-lanterns/" class="film-title-name">Lanterns</a> <span class="info">2026</span> seriál</div>
+            <div class="row"><input type="checkbox" name="w[]"><a href="/film/9499-silent-hill/" class="film-title-name">Silent Hill</a> <span class="info">2006</span></div>
+            </div></form></section></main>
+            """;
+
+        Assert.Equal(
+            new[] { new CsfdWatchlistItem(245218, "Box", 2009), new CsfdWatchlistItem(1290063, "Lanterns", 2026), new CsfdWatchlistItem(9499, "Silent Hill", 2006) },
+            CsfdWatchlistClient.ParseWatchlist(html));
+    }
 }

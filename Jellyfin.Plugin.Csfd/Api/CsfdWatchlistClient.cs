@@ -28,7 +28,7 @@ public sealed class CsfdWatchlistClient
     internal const int MaxPages = 5;
 
     /// <summary>Zvýšiť, keď sa zmení spôsob načítania – stará cache na disku sa potom nepoužije.</summary>
-    private const int CacheVersion = 2;
+    private const int CacheVersion = 3;
 
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(30);
 
@@ -163,8 +163,40 @@ public sealed class CsfdWatchlistClient
     /// </summary>
     internal static List<CsfdWatchlistItem> ParseWatchlist(string html)
     {
-        var items = new List<CsfdWatchlistItem>();
         var main = MainContent(html);
+        var byContainer = ParseContainers(main);
+        // Stránka vlastníka (súkromný zoznam so zaškrtávaním) nemá každú položku vo vlastnom tr/li/article –
+        // vtedy po kontajneroch vyjde len prvá; odkazy na filmy v poradí stránky nájdu všetky.
+        var byLinks = ParseLinks(main);
+        return byLinks.Count > byContainer.Count ? byLinks : byContainer;
+    }
+
+    /// <summary>Všetky textové odkazy na /film/{id}-…/ (nie na epizódy/sezóny) v poradí stránky, rok z textu za odkazom.</summary>
+    private static List<CsfdWatchlistItem> ParseLinks(string main)
+    {
+        var items = new List<CsfdWatchlistItem>();
+        var links = FilmLinkRx.Matches(main).ToList();
+        for (var i = 0; i < links.Count; i++)
+        {
+            var link = links[i];
+            var id = int.Parse(link.Groups["id"].Value, CultureInfo.InvariantCulture);
+            var name = CleanText(link.Groups["text"].Value);
+            if (id <= 0 || name.Length == 0 || items.Exists(x => x.CsfdId == id))
+            {
+                continue;
+            }
+
+            var after = link.Index + link.Length;
+            var until = i + 1 < links.Count ? links[i + 1].Index : main.Length;
+            items.Add(new CsfdWatchlistItem(id, name, FindYear(main[after..until])));
+        }
+
+        return items;
+    }
+
+    private static List<CsfdWatchlistItem> ParseContainers(string main)
+    {
+        var items = new List<CsfdWatchlistItem>();
         var starts = ContainerRx.Matches(main).Select(m => m.Index).ToList();
         for (var i = 0; i < starts.Count; i++)
         {
@@ -347,6 +379,11 @@ public sealed class CsfdWatchlistClient
             }
 
             loaded = true;
+            if (page == 1)
+            {
+                SaveForDiagnostics(html);
+            }
+
             var before = items.Count;
             foreach (var item in ParseWatchlist(html))
             {
@@ -365,6 +402,23 @@ public sealed class CsfdWatchlistClient
         }
 
         return (items, loaded);
+    }
+
+    /// <summary>Posledná stiahnutá stránka zoznamu (cache/watchlist-last.html) – na zistenie, keď ČSFD zmení HTML.</summary>
+    private void SaveForDiagnostics(string html)
+    {
+        try
+        {
+            var file = CacheFile();
+            if (file is not null)
+            {
+                File.WriteAllText(Path.Combine(Path.GetDirectoryName(file)!, "watchlist-last.html"), html);
+            }
+        }
+        catch (IOException ex)
+        {
+            _logger.LogDebug(ex, "ČSFD Chcem vidieť: diagnostickú stránku sa nepodarilo uložiť");
+        }
     }
 
     private static string? CacheFile()
