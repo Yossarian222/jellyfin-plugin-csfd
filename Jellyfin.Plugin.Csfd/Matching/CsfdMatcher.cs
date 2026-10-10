@@ -250,14 +250,8 @@ public sealed partial class CsfdMatcher
                 continue;
             }
 
-            double s = Similarity(cand, n);
             // "Pulp Fiction" vs "Pulp Fiction: Historky z podsvetí"
-            if (s < 0.9 && n.Length >= 4 && (cand.StartsWith(n + " ", StringComparison.Ordinal) || n.StartsWith(cand + " ", StringComparison.Ordinal)))
-            {
-                s = 0.9;
-            }
-
-            sim = Math.Max(sim, s);
+            sim = Math.Max(sim, TitleSimilarity(cand, n));
         }
 
         double score = sim * 70;
@@ -288,6 +282,53 @@ public sealed partial class CsfdMatcher
         }
 
         return (int)Math.Clamp(Math.Round(score), 0, 100);
+    }
+
+    /// <summary>Pod touto podobnosťou názvu (0–1) je spárovanie podozrivé.</summary>
+    public const double SuspiciousSimilarity = 0.5;
+
+    /// <summary>
+    /// Dôvod, prečo spárovanie položky (<paramref name="name"/>, <paramref name="originalTitle"/>,
+    /// <paramref name="year"/>) s ČSFD záznamom <paramref name="movie"/> vyzerá zle: niektorý zo zadaných názvov sa
+    /// nepodobá na žiadny ČSFD názov (hlavný ani „ďalšie názvy“), alebo sa rok líši o viac ako 1. Null = v poriadku.
+    /// </summary>
+    public static string? DescribeSuspiciousMatch(string? name, string? originalTitle, int? year, CsfdMovie movie)
+    {
+        var csfdTitles = new List<string?> { movie.Title };
+        csfdTitles.AddRange(movie.TitlesOther?.Select(t => t.Title) ?? Enumerable.Empty<string?>());
+        var normalized = csfdTitles.Select(CsfdText.Normalize).Where(t => t.Length > 0).Distinct().ToList();
+
+        var reasons = new List<string>();
+        if (normalized.Count > 0)
+        {
+            foreach (var wanted in new[] { name, originalTitle }.Distinct())
+            {
+                var n = CsfdText.Normalize(CleanQuery(wanted));
+                if (n.Length > 0 && normalized.All(t => TitleSimilarity(t, n) < SuspiciousSimilarity))
+                {
+                    reasons.Add($"názov „{wanted}“ sa nepodobá na ČSFD názvy");
+                }
+            }
+        }
+
+        if (year.HasValue && movie.Year.HasValue && Math.Abs(year.Value - movie.Year.Value) > 1)
+        {
+            reasons.Add($"rok {year} vs. {movie.Year} na ČSFD");
+        }
+
+        return reasons.Count > 0 ? string.Join(", ", reasons) : null;
+    }
+
+    /// <summary>Podobnosť normalizovaných názvov; názov s podtitulom („Pulp Fiction: Historky…“) sa počíta ako 0.9.</summary>
+    private static double TitleSimilarity(string cand, string n)
+    {
+        var s = Similarity(cand, n);
+        if (s < 0.9 && n.Length >= 4 && (cand.StartsWith(n + " ", StringComparison.Ordinal) || n.StartsWith(cand + " ", StringComparison.Ordinal)))
+        {
+            s = 0.9;
+        }
+
+        return s;
     }
 
     /// <summary>1 − normalizovaná Levenshteinova vzdialenosť.</summary>

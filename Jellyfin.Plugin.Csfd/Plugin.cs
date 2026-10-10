@@ -21,6 +21,12 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public const string ProviderKey = "Csfd";
 
     /// <summary>
+    /// Key under which the number of ČSFD votes behind the rating is stored in ProviderIds (clients can leave out
+    /// ratings from few votes, e.g. from rankings).
+    /// </summary>
+    public const string VotesKey = "CsfdVotes";
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
     /// </summary>
     /// <param name="applicationPaths">Application paths.</param>

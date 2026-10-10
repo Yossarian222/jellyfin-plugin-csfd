@@ -11,6 +11,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Providers;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Csfd.Providers;
 
@@ -86,6 +87,14 @@ public sealed class CsfdMetadataMapper
             {
                 item.CriticRating = sk.Rating.Value;
             }
+
+            // Hodnotenie z pár hlasov (napr. 95 % zo 40) nie je porovnateľné s rebríčkom – počet hlasov uložíme,
+            // aby ho klient mohol vynechať. CommunityRating nevynechávame: prázdne pole by doplnil TMDb
+            // a položka s ČSFD ID by mala TMDb hodnotenie.
+            if (isTitleLevel && sk.RatingCount is >= 0)
+            {
+                item.SetProviderId(Plugin.VotesKey, sk.RatingCount.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
         }
 
         if (isTitleLevel && config.UseGenres && sk.Genres is { Count: > 0 })
@@ -134,6 +143,27 @@ public sealed class CsfdMetadataMapper
         // Jazyk podľa skutočne použitého popisu – Jellyfin podľa toho rozhoduje o náhrade popisu z ďalších fetcherov.
         result.ResultLanguage = resultLanguage ?? "sk";
         result.Provider = Plugin.ProviderName;
+    }
+
+    /// <summary>
+    /// Zapíše do logu (Information) podozrivé spárovanie – ČSFD názov sa nepodobá na názov / originálny názov položky
+    /// alebo nesedí rok – aby sa dalo opraviť cez Identify.
+    /// </summary>
+    public static void LogIfSuspicious(ILogger logger, ItemLookupInfo info, int csfdId, CsfdMovie sk)
+    {
+        var year = info.Year ?? info.PremiereDate?.Year;
+        var reason = CsfdMatcher.DescribeSuspiciousMatch(info.Name, info.OriginalTitle, year, sk);
+        if (reason is not null)
+        {
+            logger.LogInformation(
+                "ČSFD: podozrivé spárovanie {Name} ({Year}) → {CsfdTitle} ({CsfdYear}), ČSFD ID {Id}: {Reason} – ak je zlé, oprav cez Identify",
+                info.Name,
+                year,
+                sk.Title,
+                sk.Year,
+                csfdId,
+                reason);
+        }
     }
 
     private static void AddPeople<T>(MetadataResult<T> result, List<CsfdPerson>? people, PersonKind kind, int max)

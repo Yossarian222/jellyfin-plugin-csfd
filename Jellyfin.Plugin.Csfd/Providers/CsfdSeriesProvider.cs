@@ -9,6 +9,7 @@ using Jellyfin.Plugin.Csfd.Matching;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Providers;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Csfd.Providers;
 
@@ -18,12 +19,14 @@ public class CsfdSeriesProvider : IRemoteMetadataProvider<Series, SeriesInfo>, I
     private readonly CsfdApiClient _client;
     private readonly CsfdMatcher _matcher;
     private readonly CsfdMetadataMapper _mapper;
+    private readonly ILogger<CsfdSeriesProvider> _logger;
 
-    public CsfdSeriesProvider(CsfdApiClient client, CsfdMatcher matcher, CsfdMetadataMapper mapper)
+    public CsfdSeriesProvider(CsfdApiClient client, CsfdMatcher matcher, CsfdMetadataMapper mapper, ILogger<CsfdSeriesProvider> logger)
     {
         _client = client;
         _matcher = matcher;
         _mapper = mapper;
+        _logger = logger;
     }
 
     /// <inheritdoc />
@@ -96,6 +99,7 @@ public class CsfdSeriesProvider : IRemoteMetadataProvider<Series, SeriesInfo>, I
         result.Item = new Series();
         result.QueriedById = info.ProviderIds.ContainsKey(Plugin.ProviderKey);
         CsfdMetadataMapper.Apply(result, seriesId, sk, en, isTitleLevel: true);
+        CsfdMetadataMapper.LogIfSuspicious(_logger, info, seriesId, sk);
         return result;
     }
 

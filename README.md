@@ -48,7 +48,7 @@ Potom *Scan → Replace all metadata* (obrázky nemusíš nahrádzať).
 |---|---|
 | Názov | ČSFD SK názov; ak SK neexistuje, ostane TMDb |
 | Popis | ČSFD SK → ČSFD EN → TMDb/OMDb (CZ len ak zapneš) |
-| Hodnotenie | ČSFD % ako CommunityRating (90 % → 9.0), voliteľne aj CriticRating |
+| Hodnotenie | ČSFD % ako CommunityRating (90 % → 9.0), voliteľne aj CriticRating; počet hlasov v ProviderIds pod kľúčom `CsfdVotes` (klient môže vynechať hodnotenia z pár hlasov, napr. z rebríčka) |
 | Premiéra | SK kino → SK → CZ kino → CZ → najskoršia |
 | Žánre, krajiny, tagy | ČSFD |
 | Plagáty, pozadia, logá, herci s fotkami | TMDb (ČSFD len ako záloha) |
@@ -57,6 +57,8 @@ Potom *Scan → Replace all metadata* (obrázky nemusíš nahrádzať).
 ### Ručné priradenie
 
 *Identify* → do poľa názvu vlož ČSFD URL (`https://www.csfd.sk/film/8852-…/`), `csfd:8852` alebo len `8852`.
+
+Podozrivé spárovania (ČSFD názov sa nepodobá na názov ani originálny názov položky, alebo rok nesedí o viac ako 1) plugin pri načítaní metadát zapíše do logu Jellyfinu ako `ČSFD: podozrivé spárovanie …` – tie stačí opraviť cez *Identify*.
 
 ### Môj ČSFD účet
 

@@ -1,4 +1,9 @@
+using System.Collections.Generic;
+using Jellyfin.Plugin.Csfd.Api;
 using Jellyfin.Plugin.Csfd.Matching;
+using Jellyfin.Plugin.Csfd.Providers;
+using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Model.Entities;
 using MediaBrowser.Controller.Providers;
 using Xunit;
 
@@ -62,4 +67,74 @@ public class CsfdMatcherTests
     [InlineData("Matrix (1999) [1080p]", "Matrix")]
     public void CleanQuery_Works(string input, string expected)
         => Assert.Equal(expected, CsfdMatcher.CleanQuery(input));
+
+    private static CsfdMovie Pirates() => new()
+    {
+        Title = "Piráti z Karibiku: Na vlnách podivna",
+        Year = 2011,
+        TitlesOther = new List<CsfdTitleOther>
+        {
+            new() { Country = "USA", Title = "Pirates of the Caribbean: On Stranger Tides" },
+            new() { Country = "Slovensko", Title = "Piráti z Karibiku: V neznámych vodách" }
+        }
+    };
+
+    [Theory]
+    [InlineData("Pirates of the Caribbean: On Stranger Tides", "Pirates of the Caribbean: On Stranger Tides", 2011)]
+    [InlineData("Piráti z Karibiku: V neznámych vodách", "Pirates of the Caribbean: On Stranger Tides", 2011)]
+    [InlineData("Pirates of the Caribbean On Stranger Tides (2011) [1080p]", null, 2012)]
+    [InlineData("Pirates of the Caribbean", null, 2011)]
+    public void SuspiciousMatch_GoodMatch_IsNull(string name, string? originalTitle, int year)
+        => Assert.Null(CsfdMatcher.DescribeSuspiciousMatch(name, originalTitle, year, Pirates()));
+
+    [Fact]
+    public void SuspiciousMatch_OtherTitle_IsReported()
+    {
+        var reason = CsfdMatcher.DescribeSuspiciousMatch("The Alpinist", "The Alpinist", 2021, Pirates());
+        Assert.NotNull(reason);
+        Assert.Contains("The Alpinist", reason);
+    }
+
+    [Fact]
+    public void SuspiciousMatch_WrongOriginalTitle_IsReportedEvenWhenNameMatches()
+    {
+        // Slovenský názov z (zlého) ČSFD záznamu už bol zapísaný, originálny názov z TMDb ostal.
+        var reason = CsfdMatcher.DescribeSuspiciousMatch("Piráti z Karibiku: V neznámych vodách", "The Alpinist", 2011, Pirates());
+        Assert.NotNull(reason);
+    }
+
+    [Fact]
+    public void SuspiciousMatch_YearOffByMoreThanOne_IsReported()
+    {
+        var reason = CsfdMatcher.DescribeSuspiciousMatch("Pirates of the Caribbean: On Stranger Tides", null, 2003, Pirates());
+        Assert.NotNull(reason);
+        Assert.Contains("2003", reason);
+    }
+
+    [Fact]
+    public void Apply_StoresVoteCount()
+    {
+        var result = new MediaBrowser.Controller.Providers.MetadataResult<Movie> { Item = new Movie() };
+        var movie = Pirates();
+        movie.Rating = 95;
+        movie.RatingCount = 42;
+
+        CsfdMetadataMapper.Apply(result, 123, movie, null, isTitleLevel: true);
+
+        Assert.Equal(9.5f, result.Item.CommunityRating);
+        Assert.Equal("42", result.Item.GetProviderId(Plugin.VotesKey));
+        Assert.Equal("123", result.Item.GetProviderId(Plugin.ProviderKey));
+    }
+
+    [Fact]
+    public void Apply_WithoutVoteCount_StoresNoVotes()
+    {
+        var result = new MediaBrowser.Controller.Providers.MetadataResult<Movie> { Item = new Movie() };
+        var movie = Pirates();
+        movie.Rating = 80;
+
+        CsfdMetadataMapper.Apply(result, 123, movie, null, isTitleLevel: true);
+
+        Assert.Null(result.Item.GetProviderId(Plugin.VotesKey));
+    }
 }

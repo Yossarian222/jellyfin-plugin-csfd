@@ -85,6 +85,7 @@ public class CsfdMovieProvider : IRemoteMetadataProvider<Movie, MovieInfo>, IHas
         result.Item = new Movie();
         result.QueriedById = info.ProviderIds.ContainsKey(Plugin.ProviderKey);
         CsfdMetadataMapper.Apply(result, id.Value, sk, en, isTitleLevel: true);
+        CsfdMetadataMapper.LogIfSuspicious(_logger, info, id.Value, sk);
         _logger.LogDebug("ČSFD: {Name} → {Id} ({Rating} %)", info.Name, id.Value, sk.Rating);
         return result;
     }
