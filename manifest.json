@@ -8,6 +8,14 @@
     "category": "Metadata",
     "versions": [
       {
+        "version": "1.8.0.0",
+        "changelog": "Sviatočné odporúčania: endpoint /Csfd/Seasonal (Halloween, Vianoce, Mikuláš, Silvester, Valentín, Veľká noc) – 20 tematických titulov na sviatok.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Yossarian222/jellyfin-plugin-csfd/releases/download/v1.8.0/csfd_1.8.0.0.zip",
+        "checksum": "95fd37c1d60463c47edf9603eea3ebe4",
+        "timestamp": "2026-10-10T08:11:26Z"
+      },
+      {
         "version": "1.7.0.0",
         "changelog": "Release v1.7.0",
         "targetAbi": "12.0.0.0",
