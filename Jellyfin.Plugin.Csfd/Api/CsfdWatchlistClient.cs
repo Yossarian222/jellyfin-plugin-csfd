@@ -19,15 +19,15 @@ public sealed record CsfdWatchlistItem(int CsfdId, string Title, int? Year);
 
 /// <summary>
 /// Zoznam „Chcem vidieť“ (cz „Chci vidět“) z ČSFD profilu nastaveného v plugine.
-/// Najprv verejný zoznam csfd.sk/…/chcem-vidiet/ a csfd.cz/…/chci-videt/; ak nič, súkromný csfd.cz/soukrome/chci-videt/
-/// cez prihlásenú reláciu účtu.
-/// Cache 3 h v pamäti aj na disku; pri výpadku ostáva stará.
+/// S prihlásením najprv súkromný csfd.cz/soukrome/chci-videt/ (vlastník vidí celý zoznam), inak/potom verejný
+/// csfd.sk/…/chcem-vidiet/ a csfd.cz/…/chci-videt/.
+/// Cache 30 min v pamäti aj na disku; pri výpadku ostáva stará.
 /// </summary>
 public sealed class CsfdWatchlistClient
 {
     internal const int MaxPages = 5;
 
-    private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(3);
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(30);
 
     private static readonly Regex ProfileRx = new(@"/uzivatel/(\d+-[^/?#]+)", RegexOptions.Compiled);
     /// <summary>Navigácia, bočný panel a skripty – nikdy nie sú súčasťou zoznamu (header nie: ČSFD ním obaľuje aj názov v článku).</summary>
@@ -56,6 +56,8 @@ public sealed class CsfdWatchlistClient
 
     private static readonly Regex InfoYearRx = new(@"class=""[^""]*\binfo\b[^""]*""[^>]*>\s*\(?\s*(\d{4})\s*\)?", RegexOptions.Compiled);
     private static readonly Regex ParenYearRx = new(@"\((\d{4})\)", RegexOptions.Compiled);
+    /// <summary>Rok ako samostatný text v elemente (tabuľka vlastníka: „Box • 2009 • USA“).</summary>
+    private static readonly Regex BareYearRx = new(@">\s*(\d{4})\s*<", RegexOptions.Compiled);
     private static readonly Regex TagRx = new(@"<[^>]+>", RegexOptions.Compiled);
     private static readonly Regex SpaceRx = new(@"\s+", RegexOptions.Compiled);
 
@@ -256,6 +258,11 @@ public sealed class CsfdWatchlistClient
 
         if (!m.Success)
         {
+            m = BareYearRx.Match(text);
+        }
+
+        if (!m.Success)
+        {
             return null;
         }
 
@@ -270,21 +277,9 @@ public sealed class CsfdWatchlistClient
     private async Task<List<CsfdWatchlistItem>?> DownloadAsync(string profile, CancellationToken cancellationToken)
     {
         var anyPage = false;
-        using var http = CsfdTvTipsClient.CreateHttpClient();
-        foreach (var url in WatchlistUrls(profile))
-        {
-            var (items, loaded) = await DownloadListAsync(url, u => CsfdTvTipsClient.GetPageAsync(http, u, _logger, cancellationToken), cancellationToken).ConfigureAwait(false);
-            anyPage |= loaded;
-            if (items.Count > 0)
-            {
-                _logger.LogInformation("ČSFD Chcem vidieť: {Count} položiek z {Url}", items.Count, url);
-                return items;
-            }
-        }
-
         if (CsfdAccountClient.HasCredentials)
         {
-            // Súkromný zoznam vidí len prihlásený vlastník (www.csfd.cz/soukrome/chci-videt/).
+            // Súkromný zoznam vlastníka je úplný (verejný môže byť skrytý alebo neúplný) – má prednosť.
             foreach (var url in PrivateWatchlistUrls())
             {
                 var (items, loaded) = await DownloadListAsync(url, u => _account.GetPageLoggedInAsync(u, cancellationToken), cancellationToken).ConfigureAwait(false);
@@ -294,6 +289,18 @@ public sealed class CsfdWatchlistClient
                     _logger.LogInformation("ČSFD Chcem vidieť: {Count} položiek z {Url} (prihlásený)", items.Count, url);
                     return items;
                 }
+            }
+        }
+
+        using var http = CsfdTvTipsClient.CreateHttpClient();
+        foreach (var url in WatchlistUrls(profile))
+        {
+            var (items, loaded) = await DownloadListAsync(url, u => CsfdTvTipsClient.GetPageAsync(http, u, _logger, cancellationToken), cancellationToken).ConfigureAwait(false);
+            anyPage |= loaded;
+            if (items.Count > 0)
+            {
+                _logger.LogInformation("ČSFD Chcem vidieť: {Count} položiek z {Url}", items.Count, url);
+                return items;
             }
         }
 

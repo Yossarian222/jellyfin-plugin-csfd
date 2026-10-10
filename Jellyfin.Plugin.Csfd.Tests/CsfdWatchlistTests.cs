@@ -116,4 +116,24 @@ public class CsfdWatchlistTests
     {
         Assert.Equal("https://www.csfd.cz/soukrome/chci-videt/", CsfdWatchlistClient.PrivateWatchlistUrls()[0]);
     }
+
+    [Fact]
+    public void ParseWatchlist_OwnerTableWithCheckboxesAndBareYear()
+    {
+        var html = """
+            <main><section class="box"><header class="box-header"><h2>Chcem vidieť <span class="count">(3)</span></h2></header>
+            <table><tbody>
+            <tr><td><input type="checkbox" name="ids[]" value="1"></td><td><span class="icon star-color"></span><a href="/film/245218-box/" class="film-title-name">Box</a> <span class="info">2009</span> <span>USA</span> <span>Dráma, Sci-Fi</span></td><td><a href="#edit" class="edit"></a><a href="#delete" class="delete"></a></td></tr>
+            <tr><td><input type="checkbox" name="ids[]" value="2"></td><td><a href="/film/1290063-lanterns/">Lanterns</a> <span>2026</span> <span>seriál</span> <span>USA</span></td></tr>
+            <tr><td><input type="checkbox" name="ids[]" value="3"></td><td><a href="/film/9499-silent-hill/">Silent Hill</a> <span>2006</span> <span>Kanada / Francúzsko</span></td></tr>
+            </tbody></table>
+            <footer><label><input type="checkbox"> zaškrtnúť všetky</label></footer></section></main>
+            """;
+
+        var items = CsfdWatchlistClient.ParseWatchlist(html);
+
+        Assert.Equal(
+            new[] { new CsfdWatchlistItem(245218, "Box", 2009), new CsfdWatchlistItem(1290063, "Lanterns", 2026), new CsfdWatchlistItem(9499, "Silent Hill", 2006) },
+            items);
+    }
 }
