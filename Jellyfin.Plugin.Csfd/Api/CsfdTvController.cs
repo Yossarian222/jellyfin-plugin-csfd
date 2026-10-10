@@ -321,8 +321,9 @@ public class CsfdTvController : ControllerBase
         }
 
         _logger.LogInformation(
-            "ČSFD Chcem vidieť: {Count} položiek z ČSFD, v knižnici {Matched}, chýbajúcich {Missing}",
+            "ČSFD Chcem vidieť: {Count} položiek z ČSFD ({Titles}), v knižnici {Matched}, chýbajúcich {Missing}",
             entries.Count,
+            string.Join(", ", entries.Take(20).Select(e => e.Title)),
             result.Count,
             notInLibrary.Count);
 

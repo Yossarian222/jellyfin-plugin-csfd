@@ -19,13 +19,16 @@ public sealed record CsfdWatchlistItem(int CsfdId, string Title, int? Year);
 
 /// <summary>
 /// Zoznam „Chcem vidieť“ (cz „Chci vidět“) z ČSFD profilu nastaveného v plugine.
-/// S prihlásením najprv súkromný csfd.cz/soukrome/chci-videt/ (vlastník vidí celý zoznam), inak/potom verejný
-/// csfd.sk/…/chcem-vidiet/ a csfd.cz/…/chci-videt/.
+/// S prihlásením najprv profil csfd.sk/…/chcem-vidiet/ (vlastník vidí aj súkromné položky), csfd.cz/…/chci-videt/
+/// a csfd.cz/soukrome/chci-videt/; potom anonymne verejný zoznam.
 /// Cache 30 min v pamäti aj na disku; pri výpadku ostáva stará.
 /// </summary>
 public sealed class CsfdWatchlistClient
 {
     internal const int MaxPages = 5;
+
+    /// <summary>Zvýšiť, keď sa zmení spôsob načítania – stará cache na disku sa potom nepoužije.</summary>
+    private const int CacheVersion = 2;
 
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(30);
 
@@ -109,7 +112,7 @@ public sealed class CsfdWatchlistClient
                 try
                 {
                     var stored = JsonSerializer.Deserialize<StoredWatchlist>(await File.ReadAllTextAsync(cacheFile, cancellationToken).ConfigureAwait(false));
-                    if (stored?.Profile == profile && stored.Items is not null)
+                    if (stored?.Profile == profile && stored.Version == CacheVersion && stored.Items is not null)
                     {
                         _items = stored.Items;
                         _at = File.GetLastWriteTimeUtc(cacheFile);
@@ -137,7 +140,7 @@ public sealed class CsfdWatchlistClient
             if (cacheFile is not null)
             {
                 var tmp = cacheFile + ".tmp";
-                await File.WriteAllTextAsync(tmp, JsonSerializer.Serialize(new StoredWatchlist { Profile = profile, Items = fresh }), cancellationToken).ConfigureAwait(false);
+                await File.WriteAllTextAsync(tmp, JsonSerializer.Serialize(new StoredWatchlist { Version = CacheVersion, Profile = profile, Items = fresh }), cancellationToken).ConfigureAwait(false);
                 File.Move(tmp, cacheFile, overwrite: true);
             }
 
@@ -279,17 +282,21 @@ public sealed class CsfdWatchlistClient
         var anyPage = false;
         if (CsfdAccountClient.HasCredentials)
         {
-            // Súkromný zoznam vlastníka je úplný (verejný môže byť skrytý alebo neúplný) – má prednosť.
-            foreach (var url in PrivateWatchlistUrls())
+            // Vlastník prihlásený vidí na svojom profile aj súkromné položky (anonymne len verejné) – to má prednosť.
+            foreach (var url in WatchlistUrls(profile).Concat(PrivateWatchlistUrls()))
             {
                 var (items, loaded) = await DownloadListAsync(url, u => _account.GetPageLoggedInAsync(u, cancellationToken), cancellationToken).ConfigureAwait(false);
                 anyPage |= loaded;
+                _logger.LogInformation("ČSFD Chcem vidieť: prihlásený {Url} → {Count} položiek", url, items.Count);
                 if (items.Count > 0)
                 {
-                    _logger.LogInformation("ČSFD Chcem vidieť: {Count} položiek z {Url} (prihlásený)", items.Count, url);
                     return items;
                 }
             }
+        }
+        else
+        {
+            _logger.LogInformation("ČSFD Chcem vidieť: ČSFD účet nie je v plugine nastavený – súkromné položky zoznamu nevidno");
         }
 
         using var http = CsfdTvTipsClient.CreateHttpClient();
@@ -375,6 +382,8 @@ public sealed class CsfdWatchlistClient
 
     private sealed class StoredWatchlist
     {
+        public int Version { get; set; }
+
         public string? Profile { get; set; }
 
         public List<CsfdWatchlistItem>? Items { get; set; }
