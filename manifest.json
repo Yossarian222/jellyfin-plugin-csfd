@@ -8,6 +8,14 @@
     "category": "Metadata",
     "versions": [
       {
+        "version": "1.8.1.0",
+        "changelog": "Chcem vidieť: s prihlásením sa načíta celý súkromný zoznam (predtým len časť z verejného), obnova každých 30 min.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Yossarian222/jellyfin-plugin-csfd/releases/download/v1.8.1/csfd_1.8.1.0.zip",
+        "checksum": "f860bf357ba6eecb635fd106f64f5ed3",
+        "timestamp": "2026-10-10T10:42:30Z"
+      },
+      {
         "version": "1.8.0.0",
         "changelog": "Sviatočné odporúčania: endpoint /Csfd/Seasonal (Halloween, Vianoce, Mikuláš, Silvester, Valentín, Veľká noc) – 20 tematických titulov na sviatok.",
         "targetAbi": "12.0.0.0",
