@@ -8,6 +8,14 @@
     "category": "Metadata",
     "versions": [
       {
+        "version": "1.8.2.0",
+        "changelog": "Chcem vidieť: prihlásený účet číta zoznam na profile (vidí aj súkromné položky), stará cache sa zahodí, log vypíše názvy titulov.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Yossarian222/jellyfin-plugin-csfd/releases/download/v1.8.2/csfd_1.8.2.0.zip",
+        "checksum": "d5ad86d7c4feef299c3436e56f94cc25",
+        "timestamp": "2026-10-10T11:55:50Z"
+      },
+      {
         "version": "1.8.1.0",
         "changelog": "Chcem vidieť: s prihlásením sa načíta celý súkromný zoznam (predtým len časť z verejného), obnova každých 30 min.",
         "targetAbi": "12.0.0.0",
