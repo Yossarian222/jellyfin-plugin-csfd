@@ -8,6 +8,14 @@
     "category": "Metadata",
     "versions": [
       {
+        "version": "1.10.0.0",
+        "changelog": "Hodnotenie sérií a epizód: Moje hodnotenia priraďujú hodnotenia sérií a epizód k ich vlastnému ČSFD ID (predtým k seriálu); ID série/epizódy sa uloží aj keď sa detail nenačíta. Pre Wholphinix v1.0.6.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Yossarian222/jellyfin-plugin-csfd/releases/download/v1.10.0/csfd_1.10.0.0.zip",
+        "checksum": "1310ed16fdf90a8e42d892ed5691a84a",
+        "timestamp": "2026-10-13T18:44:23Z"
+      },
+      {
         "version": "1.9.0.0",
         "changelog": "Počet ČSFD hlasov (CsfdVotes) pre rebríčky vo Wholphinixe; log podozrivých spárovaní („podozrivé spárovanie“) – oprav cez Identify. Pre existujúce položky treba obnoviť metadáta s nahradením.",
         "targetAbi": "12.0.0.0",
