@@ -52,6 +52,7 @@ public class CsfdEpisodeProvider : IRemoteMetadataProvider<Episode, EpisodeInfo>
         var seasonNumber = info.ParentIndexNumber ?? 1;
         string? listTitle = null;
         int episodeId;
+        var resolved = false;
 
         if (info.ProviderIds.TryGetValue(Plugin.ProviderKey, out var own) && CsfdMatcher.TryParseId(own, out var ownId) && ownId != seriesId)
         {
@@ -67,11 +68,19 @@ public class CsfdEpisodeProvider : IRemoteMetadataProvider<Episode, EpisodeInfo>
 
             episodeId = eid;
             listTitle = child.Title;
+            resolved = true;
         }
 
         var (sk, en) = await _mapper.LoadAsync(episodeId, cancellationToken, fetchEnglish: false).ConfigureAwait(false);
         if (sk is null)
         {
+            if (resolved)
+            {
+                // Detail sa nenačítal, vlastné ČSFD ID epizódy však poznáme – uložíme aspoň ho (hodnotenie v appke).
+                result.Item = new Episode { IndexNumber = info.IndexNumber, ParentIndexNumber = info.ParentIndexNumber };
+                CsfdMetadataMapper.ApplyIdOnly(result, episodeId);
+            }
+
             return result;
         }
 

@@ -115,6 +115,49 @@ public class CsfdTvTipsTests
     }
 
     [Fact]
+    public void Account_ParsesSeasonAndEpisodeRatingsWithOwnIds()
+    {
+        // Riadky z /uzivatel/…/hodnoceni/: série a epizódy majú vnorenú adresu /film/{seriál}/{séria|epizóda}/.
+        const string page = """
+            <tr><td class="name"><h3 class="film-title-inline"><a href="/film/1595741-studio/1596162-serie-1/prehled/" class="film-title-name">Studio - Série 1</a><span class="film-title-info"><span class="info">série</span> <span class="info">(S01)</span></span></h3></td>
+            <td class="star-rating-only"><span class="star-rating"><span class="stars stars-3"></span></span></td></tr>
+            <tr><td class="name"><h3 class="film-title-inline"><a href="/film/1595741-studio/1596181-zlate-globy/prehled/" class="film-title-name">Studio - Zlaté glóby</a><span class="film-title-info"><span class="info">epizoda</span> <span class="info">(S01E08)</span></span></h3></td>
+            <td class="star-rating-only"><span class="star-rating"><span class="stars stars-5"></span></span></td></tr>
+            <tr><td class="name"><h3 class="film-title-inline"><a href="/film/1595741-studio/prehled/" class="film-title-name">Studio</a><span class="film-title-info"><span class="info">seriál</span></span></h3></td>
+            <td class="star-rating-only"><span class="star-rating"><span class="stars stars-4"></span></span></td></tr>
+            <tr><td class="name"><h3><a href="https://www.csfd.sk/film/72489-simpsonovi/474220-mluvici-hlava/">Mluvící hlava</a></h3></td>
+            <td class="star-rating-only"><span class="star-rating"><span class="stars trash"></span></span></td></tr>
+            <tr><td class="name"><h3><a href="/film/123-2001-vesmirna-odysea/prehlad/">2001</a></h3></td>
+            <td class="star-rating-only"><span class="star-rating"><span class="stars stars-2"></span></span></td></tr>
+            """;
+        var ratings = new Dictionary<int, int>();
+
+        CsfdAccountClient.ParseRatingsInto(page, ratings);
+
+        Assert.Equal(3, ratings[1596162]);
+        Assert.Equal(5, ratings[1596181]);
+        Assert.Equal(4, ratings[1595741]);
+        Assert.Equal(0, ratings[474220]);
+        Assert.Equal(2, ratings[123]);
+        Assert.False(ratings.ContainsKey(72489));
+        Assert.Equal(5, ratings.Count);
+    }
+
+    [Fact]
+    public void Account_FindsStarLinkOnSeasonPage()
+    {
+        // Stránka série/epizódy má rovnaký blok hviezd ako film.
+        const string page = """
+            <link rel="canonical" href="https://www.csfd.cz/film/72489-simpsonovi/474212-serie-1/prehled/">
+            <span class="stars-rating"> <a class="star star-60" href="#close-dropdown" data-rating="60"></a>
+            <a class="star star-80" href="/film/72489-simpsonovi/474212-serie-1/prehled/?rating=80&amp;do=rate" data-rating="80"></a> </span>
+            """;
+
+        Assert.Equal("#close-dropdown", CsfdAccountClient.FindStarHref(page, 60));
+        Assert.Equal("/film/72489-simpsonovi/474212-serie-1/prehled/?rating=80&do=rate", CsfdAccountClient.FindStarHref(page, 80));
+    }
+
+    [Fact]
     public void Account_FindsStarLink()
     {
         const string page = """

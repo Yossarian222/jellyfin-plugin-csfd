@@ -23,7 +23,11 @@ public sealed class CsfdAccountClient
     private static readonly TimeSpan LoginCooldown = TimeSpan.FromMinutes(10);
 
     private static readonly Regex ProfileRx = new(@"/uzivatel/(\d+-[^/]+)/", RegexOptions.Compiled);
-    private static readonly Regex RowFilmRx = new(@"href=""/film/(\d+)-", RegexOptions.Compiled);
+    /// <summary>
+    /// Odkaz na titul v riadku hodnotení. Séria a epizóda majú vnorenú adresu /film/{seriál}/{séria alebo epizóda}/ –
+    /// ID titulu je posledný číselný segment (prvý by bol seriál).
+    /// </summary>
+    private static readonly Regex RowFilmRx = new(@"href=""(?:https://www\.csfd\.(?:sk|cz))?/film/(?:(?<id>\d+)[^/""]*/)+", RegexOptions.Compiled);
     private static readonly Regex RowStarsRx = new(@"class=""stars (?:stars-(\d)|trash)", RegexOptions.Compiled);
     private static readonly Regex LoginFormRx = new(@"<form action=""([^""]+)""[^>]*id=""frm-loginForm""", RegexOptions.Compiled);
     private static readonly Regex FlashErrorRx = new(@"flash-message-error"">([^<]+)<", RegexOptions.Compiled);
@@ -45,7 +49,10 @@ public sealed class CsfdAccountClient
 
     private static PluginConfiguration Config => Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
-    /// <summary>ČSFD ID → hviezdy (0 = odpad, 1–5) z verejného profilu nastaveného v plugine.</summary>
+    /// <summary>
+    /// ČSFD ID → hviezdy (0 = odpad, 1–5) z verejného profilu nastaveného v plugine. Obsahuje aj série a epizódy
+    /// (ČSFD ich v hodnoteniach vypisuje ako samostatné tituly s vlastným ID).
+    /// </summary>
     public async Task<IReadOnlyDictionary<int, int>> GetMyRatingsAsync(CancellationToken cancellationToken)
     {
         var profile = ProfileRx.Match(Config.CsfdProfileUrl ?? string.Empty);
@@ -98,7 +105,10 @@ public sealed class CsfdAccountClient
         }
     }
 
-    /// <summary>Ohodnotí film na ČSFD (0 = odpad, 1–5 hviezd). Vráti (ok, správa).</summary>
+    /// <summary>
+    /// Ohodnotí titul na ČSFD (0 = odpad, 1–5 hviezd) – film, seriál, sériu aj epizódu: všetky majú stránku
+    /// /film/{id}/prehlad/ (ČSFD presmeruje na vnorenú adresu) s rovnakým formulárom hviezd. Vráti (ok, správa).
+    /// </summary>
     public async Task<(bool Ok, string Message)> RateAsync(int csfdId, int stars, CancellationToken cancellationToken)
     {
         stars = Math.Clamp(stars, 0, 5);
@@ -295,7 +305,8 @@ public sealed class CsfdAccountClient
             if (film.Success && stars.Success)
             {
                 var value = stars.Groups[1].Success ? int.Parse(stars.Groups[1].Value, CultureInfo.InvariantCulture) : 0;
-                ratings.TryAdd(int.Parse(film.Groups[1].Value, CultureInfo.InvariantCulture), value);
+                var ids = film.Groups["id"].Captures;
+                ratings.TryAdd(int.Parse(ids[^1].Value, CultureInfo.InvariantCulture), value);
             }
         }
     }

@@ -3,6 +3,7 @@ using Jellyfin.Plugin.Csfd.Api;
 using Jellyfin.Plugin.Csfd.Matching;
 using Jellyfin.Plugin.Csfd.Providers;
 using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Controller.Providers;
 using Xunit;
@@ -136,5 +137,42 @@ public class CsfdMatcherTests
         CsfdMetadataMapper.Apply(result, 123, movie, null, isTitleLevel: true);
 
         Assert.Null(result.Item.GetProviderId(Plugin.VotesKey));
+    }
+
+    [Fact]
+    public void Apply_Season_StoresSeasonOwnId()
+    {
+        var result = new MediaBrowser.Controller.Providers.MetadataResult<Season> { Item = new Season { IndexNumber = 1 } };
+        var season = Pirates();
+        season.Rating = 80;
+        season.RatingCount = 10;
+
+        CsfdMetadataMapper.Apply(result, 474212, season, null, isTitleLevel: false);
+
+        Assert.Equal("474212", result.Item.GetProviderId(Plugin.ProviderKey));
+        Assert.Null(result.Item.GetProviderId(Plugin.VotesKey));
+    }
+
+    [Fact]
+    public void ApplyIdOnly_Episode_StoresOnlyId()
+    {
+        var result = new MediaBrowser.Controller.Providers.MetadataResult<Episode> { Item = new Episode { IndexNumber = 3, ParentIndexNumber = 1 } };
+
+        CsfdMetadataMapper.ApplyIdOnly(result, 474220);
+
+        Assert.True(result.HasMetadata);
+        Assert.Equal(Plugin.ProviderName, result.Provider);
+        Assert.Equal("474220", result.Item.GetProviderId(Plugin.ProviderKey));
+        Assert.Null(result.Item.Overview);
+        Assert.Null(result.Item.CommunityRating);
+    }
+
+    [Theory]
+    [InlineData("https://www.csfd.cz/film/72489-simpsonovi/474212-serie-1/prehled/", 474212)]
+    [InlineData("https://www.csfd.sk/film/1595741-studio/1596181-zlate-globy/", 1596181)]
+    public void TryParseId_SeasonAndEpisodeUrl_TakesOwnId(string value, int expected)
+    {
+        Assert.True(CsfdMatcher.TryParseId(value, out var id));
+        Assert.Equal(expected, id);
     }
 }

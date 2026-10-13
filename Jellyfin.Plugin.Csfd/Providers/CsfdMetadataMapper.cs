@@ -146,6 +146,18 @@ public sealed class CsfdMetadataMapper
     }
 
     /// <summary>
+    /// Len ČSFD ID bez ďalších dát – pre sériu/epizódu, ktorej ID poznáme zo štruktúry seriálu, ale detail sa nenačítal.
+    /// Appka podľa neho hodnotí sériu/epizódu na ČSFD; texty doplní ďalší refresh alebo TMDb.
+    /// </summary>
+    public static void ApplyIdOnly<T>(MetadataResult<T> result, int csfdId)
+        where T : BaseItem
+    {
+        result.Item.SetProviderId(Plugin.ProviderKey, csfdId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        result.HasMetadata = true;
+        result.Provider = Plugin.ProviderName;
+    }
+
+    /// <summary>
     /// Zapíše do logu (Information) podozrivé spárovanie – ČSFD názov sa nepodobá na názov / originálny názov položky
     /// alebo nesedí rok – aby sa dalo opraviť cez Identify.
     /// </summary>

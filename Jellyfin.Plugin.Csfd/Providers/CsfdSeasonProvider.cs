@@ -49,6 +49,7 @@ public class CsfdSeasonProvider : IRemoteMetadataProvider<Season, SeasonInfo>, I
         }
 
         int seasonId;
+        var resolved = false;
         if (info.ProviderIds.TryGetValue(Plugin.ProviderKey, out var own) && CsfdMatcher.TryParseId(own, out var ownId) && ownId != seriesId)
         {
             seasonId = ownId;
@@ -62,11 +63,19 @@ public class CsfdSeasonProvider : IRemoteMetadataProvider<Season, SeasonInfo>, I
             }
 
             seasonId = sid;
+            resolved = true;
         }
 
         var (sk, en) = await _mapper.LoadAsync(seasonId, cancellationToken, fetchEnglish: false).ConfigureAwait(false);
         if (sk is null)
         {
+            if (resolved)
+            {
+                // Detail sa nenačítal, vlastné ČSFD ID série však poznáme – uložíme aspoň ho (hodnotenie v appke).
+                result.Item = new Season { IndexNumber = info.IndexNumber };
+                CsfdMetadataMapper.ApplyIdOnly(result, seasonId);
+            }
+
             return result;
         }
 
