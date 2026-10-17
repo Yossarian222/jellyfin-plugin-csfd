@@ -201,6 +201,131 @@ public sealed class CsfdAccountClient
         }
     }
 
+    /// <summary>
+    /// Vyradí titul zo „Chcem vidieť“ – to isté ako kôš v riadku súkromného zoznamu (CSFD.SecureHandle vloží kód
+    /// riadku do formulára frm-deleteWatchlist-form). Titul, ktorý v zozname nie je, je tiež úspech.
+    /// </summary>
+    public async Task<(bool Ok, string Message)> RemoveFromWatchlistAsync(int csfdId, CancellationToken cancellationToken)
+    {
+        await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ApplyReset();
+            for (var attempt = 1; attempt <= 2; attempt++)
+            {
+                if (!_loggedIn)
+                {
+                    var (ok, message) = await LoginAsync(cancellationToken).ConfigureAwait(false);
+                    if (!ok)
+                    {
+                        return (false, message);
+                    }
+                }
+
+                var http = _session!;
+                var relogin = false;
+                for (var page = 1; page <= CsfdWatchlistClient.MaxPages; page++)
+                {
+                    var path = WatchlistPath + (page > 1 ? $"?page={page}" : string.Empty);
+                    var html = await CsfdTvTipsClient.GetPageAsync(http, path, _logger, cancellationToken).ConfigureAwait(false);
+                    if (html is null)
+                    {
+                        return (false, "Zoznam Chcem vidieť sa na ČSFD nepodarilo načítať.");
+                    }
+
+                    if (!IsLoggedInPage(html, Config.CsfdNick))
+                    {
+                        _loggedIn = false;
+                        relogin = true;
+                        break;
+                    }
+
+                    if (FindWatchlistDelete(html, csfdId) is not { } delete)
+                    {
+                        if (!html.Contains($"page={page + 1}", StringComparison.Ordinal))
+                        {
+                            return (true, "Titul v zozname nie je.");
+                        }
+
+                        continue;
+                    }
+
+                    var after = await PostFormAsync(
+                        http,
+                        new Uri("https://www.csfd.sk" + delete.Action),
+                        new Dictionary<string, string>
+                        {
+                            ["_token_"] = delete.Token,
+                            ["_value_"] = delete.Value,
+                            ["_do"] = "deleteWatchlist-form-submit"
+                        },
+                        cancellationToken,
+                        "https://www.csfd.sk" + path).ConfigureAwait(false);
+
+                    // Po zmazaní ČSFD presmeruje späť na zoznam – kód riadku tam už byť nesmie.
+                    if (after.Contains("deleteWatchlist-form=" + delete.Value, StringComparison.Ordinal))
+                    {
+                        _logger.LogWarning("ČSFD účet: {CsfdId} sa z Chcem vidieť nevyradil", csfdId);
+                        return (false, "ČSFD vyradenie neprijalo.");
+                    }
+
+                    _logger.LogInformation("ČSFD účet: {CsfdId} vyradený z Chcem vidieť", csfdId);
+                    return (true, "OK");
+                }
+
+                if (!relogin)
+                {
+                    return (true, "Titul v zozname nie je.");
+                }
+            }
+
+            return (false, "Na ČSFD sa nepodarilo prihlásiť.");
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "ČSFD účet: vyradenie {CsfdId} z Chcem vidieť zlyhalo", csfdId);
+            return (false, ex.Message);
+        }
+        finally
+        {
+            Gate.Release();
+        }
+    }
+
+    private const string WatchlistPath = "/sukromne/chcem-vidiet/";
+
+    /// <summary>Akcia, CSRF token formulára frm-deleteWatchlist-form a kód koša v riadku titulu <paramref name="csfdId"/>.</summary>
+    internal static (string Action, string Token, string Value)? FindWatchlistDelete(string html, int csfdId)
+    {
+        var form = Regex.Match(html, @"<form[^>]*id=""frm-deleteWatchlist-form""[^>]*>.*?</form>", RegexOptions.Singleline);
+        if (!form.Success)
+        {
+            return null;
+        }
+
+        var action = Regex.Match(form.Value, @"action=""([^""]+)""");
+        var token = Regex.Match(form.Value, @"name=""_token_""[^>]*value=""([^""]*)""|value=""([^""]*)""[^>]*name=""_token_""");
+        if (!action.Success || !token.Success)
+        {
+            return null;
+        }
+
+        var id = csfdId.ToString(CultureInfo.InvariantCulture);
+        var titleRx = new Regex($@"itemId={id}[""&]|/film/(?:\d+[^/""]*/)*{id}-");
+        foreach (var row in html.Split("class=\"watchlist-table-row\"", StringSplitOptions.None)[1..])
+        {
+            var trash = Regex.Match(row, @"#secureHandle-frm-deleteWatchlist-form=([^""]+)""");
+            if (trash.Success && titleRx.IsMatch(row))
+            {
+                return (WebUtility.HtmlDecode(action.Groups[1].Value),
+                    WebUtility.HtmlDecode(token.Groups[1].Success ? token.Groups[1].Value : token.Groups[2].Value),
+                    WebUtility.HtmlDecode(trash.Groups[1].Value));
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>Je v nastaveniach vyplnená prezývka aj heslo (dá sa prihlásiť)?</summary>
     internal static bool HasCredentials => !string.IsNullOrWhiteSpace(Config.CsfdNick) && !string.IsNullOrEmpty(Config.CsfdPassword);
 

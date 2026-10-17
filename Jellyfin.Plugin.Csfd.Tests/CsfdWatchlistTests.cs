@@ -153,4 +153,27 @@ public class CsfdWatchlistTests
             new[] { new CsfdWatchlistItem(245218, "Box", 2009), new CsfdWatchlistItem(1290063, "Lanterns", 2026), new CsfdWatchlistItem(9499, "Silent Hill", 2006) },
             CsfdWatchlistClient.ParseWatchlist(html));
     }
+    [Fact]
+    public void FindWatchlistDelete_TrashOfTheRightRow()
+    {
+        // Výrez súkromnej stránky /sukromne/chcem-vidiet/ (kôš v riadku → CSFD.SecureHandle → frm-deleteWatchlist-form)
+        const string html = """
+            <form action="/sukromne/chcem-vidiet/" method="post" id="frm-deleteWatchlist-form">
+            <input type="hidden" name="_token_" value="tok123="><input type="hidden" name="_value_" value=""><input type="hidden" name="_do" value="deleteWatchlist-form-submit">
+            </form>
+            <div class="watchlist-table-row" id="watchlist-1"data-watchlist="1">
+            <a href="/film/132672-nebezpecny-navrh/" class="film-title-name">Box</a>
+            <a href="/sukromne/chcem-vidiet/?modal=addWatchlist&itemId=132672" class="button-edit"></a>
+            <a href="#secureHandle-frm-deleteWatchlist-form=ZGxmZGNmBGt" class="button-trash"></a>
+            </div>
+            <div class="watchlist-table-row" id="watchlist-2"data-watchlist="2">
+            <a href="/film/30426-utajene-bratstvo/" class="film-title-name">Bratrstvo</a>
+            <a href="/sukromne/chcem-vidiet/?modal=addWatchlist&itemId=30426" class="button-edit"></a>
+            <a href="#secureHandle-frm-deleteWatchlist-form=ZGx2BQZ5ZmD" class="button-trash"></a>
+            </div>
+            """;
+        Assert.Equal(("/sukromne/chcem-vidiet/", "tok123=", "ZGx2BQZ5ZmD"), CsfdAccountClient.FindWatchlistDelete(html, 30426));
+        Assert.Equal("ZGxmZGNmBGt", CsfdAccountClient.FindWatchlistDelete(html, 132672)?.Value);
+        Assert.Null(CsfdAccountClient.FindWatchlistDelete(html, 3042));
+    }
 }

@@ -157,6 +157,33 @@ public sealed class CsfdWatchlistClient
         }
     }
 
+    /// <summary>Vyradí titul zo zoznamu na ČSFD a hneď aj z cache (inak by sa vrátil až po <see cref="CacheTtl"/>).</summary>
+    public async Task<(bool Ok, string Message)> RemoveAsync(int csfdId, CancellationToken cancellationToken)
+    {
+        var result = await _account.RemoveFromWatchlistAsync(csfdId, cancellationToken).ConfigureAwait(false);
+        if (!result.Ok)
+        {
+            return result;
+        }
+
+        await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            _items = _items?.Where(i => i.CsfdId != csfdId).ToList();
+            var cacheFile = CacheFile();
+            if (cacheFile is not null && File.Exists(cacheFile))
+            {
+                File.Delete(cacheFile);
+            }
+        }
+        finally
+        {
+            Gate.Release();
+        }
+
+        return result;
+    }
+
     /// <summary>
     /// Vytiahne položky zoznamu zo stránky: kontajnery article/tr/li s odkazom na /film/{id}-…,
     /// bez hlavičky, navigácie, päty a bočného panelu; deduplikované podľa ID, v poradí stránky.

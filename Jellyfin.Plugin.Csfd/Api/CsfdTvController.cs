@@ -156,6 +156,29 @@ public class CsfdTvController : ControllerBase
         return Ok(new { ok, message });
     }
 
+    /// <summary>Vyradí titul zo „Chcem vidieť“ na ČSFD účtom z nastavení pluginu (rovnaké oprávnenie ako hodnotenie).</summary>
+    [HttpDelete("Watchlist/{csfdId:int}")]
+    public async Task<ActionResult<object>> RemoveFromWatchlist([FromRoute] int csfdId, CancellationToken cancellationToken = default)
+    {
+        if (CurrentUser() is not { } user)
+        {
+            return Unauthorized();
+        }
+
+        if (Plugin.Instance?.Configuration.AllowRatingForAllUsers == false && !user.HasPermission(PermissionKind.IsAdministrator))
+        {
+            return Forbid();
+        }
+
+        if (csfdId <= 0)
+        {
+            return BadRequest(new { ok = false, message = "Neplatné ČSFD ID." });
+        }
+
+        var (ok, message) = await _watchlist.RemoveAsync(csfdId, cancellationToken).ConfigureAwait(false);
+        return Ok(new { ok, message });
+    }
+
     /// <summary>Zaujímavosti k filmu/seriálu z ČSFD (najviac <paramref name="limit"/>, bez spoilerov).</summary>
     [HttpGet("Trivia/{csfdId:int}")]
     public async Task<ActionResult<IReadOnlyList<string>>> Trivia([FromRoute] int csfdId, [FromQuery] int limit = 4, CancellationToken cancellationToken = default)
