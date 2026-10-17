@@ -8,6 +8,14 @@
     "category": "Metadata",
     "versions": [
       {
+        "version": "1.11.0.0",
+        "changelog": "Chcem vidieť: vyradenie titulu (DELETE /Csfd/Watchlist/{csfdId})\n\n- CsfdAccountClient.RemoveFromWatchlistAsync: prihlásený prejde súkromný\n  zoznam /sukromne/chcem-vidiet/ (najviac MaxPages strán), nájde kôš\n  v riadku titulu a odošle frm-deleteWatchlist-form ako prehliadač.\n- CsfdWatchlistClient.RemoveAsync: po úspechu vyhodí titul aj z cache.\n- Oprávnenie rovnaké ako pri hodnotení (AllowRatingForAllUsers).\n- Test FindWatchlistDelete, README.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Yossarian222/jellyfin-plugin-csfd/releases/download/v1.11.0/csfd_1.11.0.0.zip",
+        "checksum": "65b8fccf68b39b6315be9dddcc5a4c9c",
+        "timestamp": "2026-10-17T16:52:30Z"
+      },
+      {
         "version": "1.10.0.0",
         "changelog": "Hodnotenie sérií a epizód: Moje hodnotenia priraďujú hodnotenia sérií a epizód k ich vlastnému ČSFD ID (predtým k seriálu); ID série/epizódy sa uloží aj keď sa detail nenačíta. Pre Wholphinix v1.0.6.",
         "targetAbi": "12.0.0.0",
