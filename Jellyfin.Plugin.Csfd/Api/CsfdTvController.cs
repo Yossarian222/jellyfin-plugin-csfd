@@ -92,6 +92,7 @@ public class CsfdTvController : ControllerBase
     private readonly CsfdTriviaClient _trivia;
     private readonly CsfdWatchlistClient _watchlist;
     private readonly CsfdSeasonalClient _seasonal;
+    private readonly CsfdImdbClient _imdb;
 
     public CsfdTvController(
         CsfdTvTipsClient tips,
@@ -103,8 +104,10 @@ public class CsfdTvController : ControllerBase
         CsfdAccountClient account,
         CsfdTriviaClient trivia,
         CsfdWatchlistClient watchlist,
-        CsfdSeasonalClient seasonal)
+        CsfdSeasonalClient seasonal,
+        CsfdImdbClient imdb)
     {
+        _imdb = imdb;
         _seasonal = seasonal;
         _watchlist = watchlist;
         _account = account;
@@ -196,6 +199,28 @@ public class CsfdTvController : ControllerBase
     [HttpGet("Ranks")]
     public async Task<ActionResult<IReadOnlyDictionary<int, int>>> Ranks(CancellationToken cancellationToken = default)
         => Ok(await _rankings.GetRanksAsync(cancellationToken).ConfigureAwait(false));
+
+    /// <summary>IMDb hodnotenia titulov v knižnici: IMDb ID → hodnotenie a hlasy; <paramref name="ids"/> (čiarkou) ich zúži.</summary>
+    [HttpGet("Imdb")]
+    public ActionResult<IReadOnlyDictionary<string, ImdbRating>> Imdb([FromQuery] string? ids)
+    {
+        var all = _imdb.GetRatings();
+        if (string.IsNullOrWhiteSpace(ids))
+        {
+            return Ok(all);
+        }
+
+        var wanted = new Dictionary<string, ImdbRating>();
+        foreach (var id in ids.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (all.TryGetValue(id, out var rating))
+            {
+                wanted[id] = rating;
+            }
+        }
+
+        return Ok(wanted);
+    }
 
     /// <summary>Najlepšie hodnotené TV tipy dňa, ktoré má používateľ v knižnici.</summary>
     /// <param name="userId">Voliteľne iný používateľ – len pre admina alebo API kľúč (ten používateľa nemá), napr. MCP server pre Clauda.</param>

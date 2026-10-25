@@ -108,7 +108,7 @@ public class CsfdSeasonalTests
     public async Task Seasonal_UnknownEvent_ReturnsBadRequest(string? key)
     {
         // Neznámy sviatok sa odmietne skôr, než sa siahne na knižnicu či používateľov.
-        var controller = new CsfdTvController(null!, null!, null!, null!, null!, null!, null!, null!, null!, null!);
+        var controller = new CsfdTvController(null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!);
 
         var result = await controller.Seasonal(key);
 

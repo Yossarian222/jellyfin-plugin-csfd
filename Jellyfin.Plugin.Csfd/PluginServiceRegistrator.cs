@@ -21,6 +21,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<CsfdTriviaClient>();
         serviceCollection.AddSingleton<CsfdWatchlistClient>();
         serviceCollection.AddSingleton<CsfdSeasonalClient>();
+        serviceCollection.AddSingleton<CsfdImdbClient>();
         serviceCollection.AddSingleton<CsfdMatcher>();
         serviceCollection.AddSingleton<CsfdMetadataMapper>();
         serviceCollection.AddSingleton<CsfdSeriesStructure>();
