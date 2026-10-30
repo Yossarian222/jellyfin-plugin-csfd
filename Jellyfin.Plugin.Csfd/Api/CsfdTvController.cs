@@ -386,7 +386,7 @@ public class CsfdTvController : ControllerBase
     /// <summary>
     /// Sviatočné odporúčania (<paramref name="event"/>: newyear, valentine, easter, halloween, nicholas, christmas) z kurátorovaného
     /// zoznamu: najprv tituly v knižnici používateľa, potom najviac <paramref name="missing"/> chýbajúcich s detailmi pre Seerr;
-    /// v oboch skupinách podľa hodnotenia ČSFD zostupne, spolu najviac <paramref name="limit"/>. Formát ako TvTips (Time/Channel sú null).
+    /// v oboch skupinách zamiešané podľa dňa (cez deň rovnaké poradie, každý deň iné), spolu najviac <paramref name="limit"/>. Formát ako TvTips (Time/Channel sú null).
     /// </summary>
     /// <param name="userId">Voliteľne iný používateľ – len pre admina alebo API kľúč (ako pri TvTips).</param>
     [HttpGet("Seasonal")]
@@ -454,8 +454,9 @@ public class CsfdTvController : ControllerBase
             });
         }
 
+        var daily = new Random(DailySeed(DateTime.Now, eventKey));
         var result = inLibrary
-            .OrderByDescending(t => t.RatingPercent ?? -1)
+            .OrderBy(_ => daily.Next())
             .Take(maxTotal)
             .ToList();
 
@@ -471,7 +472,7 @@ public class CsfdTvController : ControllerBase
                 missingDtos.Add(ToSeasonalMissingDto(entry, detail));
             }
 
-            result.AddRange(missingDtos.OrderByDescending(t => t.RatingPercent ?? -1).Take(missingSlots));
+            result.AddRange(missingDtos.OrderBy(_ => daily.Next()).Take(missingSlots));
         }
 
         _logger.LogInformation(
@@ -483,6 +484,10 @@ public class CsfdTvController : ControllerBase
 
         return Ok(result);
     }
+
+    /// <summary>Seed na zamiešanie sviatočných titulov: rovnaký celý deň, každý deň (a sviatok) iný.</summary>
+    internal static int DailySeed(DateTime now, string eventKey)
+        => DateOnly.FromDateTime(now).DayNumber * 31 + eventKey.Length;
 
     /// <summary>Používateľ z tokenu (claim Jellyfin-UserId), alebo null (aj pri API kľúči, ten má prázdne ID).</summary>
     private Jellyfin.Database.Implementations.Entities.User? CurrentUser()

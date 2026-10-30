@@ -157,6 +157,15 @@ public class CsfdSeasonalTests
         Assert.Equal(new[] { "The Chosen" }, dto.Titles);
     }
 
+    [Fact]
+    public void DailySeed_SameAllDayDifferentNextDay()
+    {
+        var morning = new System.DateTime(2026, 10, 30, 0, 5, 0);
+
+        Assert.Equal(CsfdTvController.DailySeed(morning, "halloween"), CsfdTvController.DailySeed(morning.AddHours(23), "halloween"));
+        Assert.NotEqual(CsfdTvController.DailySeed(morning, "halloween"), CsfdTvController.DailySeed(morning.AddDays(1), "halloween"));
+    }
+
     private static void AssertUnique(IEnumerable<string> values)
     {
         var duplicates = values.GroupBy(v => v).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
