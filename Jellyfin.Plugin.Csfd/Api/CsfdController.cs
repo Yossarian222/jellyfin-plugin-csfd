@@ -31,6 +31,14 @@ public class CsfdController : ControllerBase
         return Ok(new { ok, message });
     }
 
+    /// <summary>Stav posledného prihlásenia na ČSFD účet (čas, výsledok a dôvod zlyhania).</summary>
+    [HttpGet("LoginStatus")]
+    public ActionResult<object> LoginStatus()
+    {
+        var (at, ok, reason, retryInMinutes) = CsfdAccountClient.LastLoginStatus();
+        return Ok(new { known = at is not null, ok, at, reason, retryInMinutes });
+    }
+
     /// <summary>Otestuje spojenie so sidecarom na ČSFD ID (predvolene Pulp Fiction).</summary>
     [HttpGet("Test")]
     public async Task<ActionResult<object>> Test([FromQuery] int id = 8852, CancellationToken cancellationToken = default)

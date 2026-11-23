@@ -38,6 +38,10 @@ public sealed class CsfdAccountClient
     private static HttpClient? _session;
     private static bool _loggedIn;
     private static DateTime _loginFailedAt = DateTime.MinValue;
+    /// <summary>Dôvod posledného neúspešného prihlásenia (zlé heslo, zmenený formulár, Anubis, sieť…).</summary>
+    private static string? _loginFailedReason;
+    private static DateTime _lastLoginAt = DateTime.MinValue;
+    private static bool _lastLoginOk;
     private static volatile bool _resetRequested;
 
     private readonly ILogger<CsfdAccountClient> _logger;
@@ -495,6 +499,7 @@ public sealed class CsfdAccountClient
         _session = null;
         _loggedIn = false;
         _loginFailedAt = DateTime.MinValue;
+        _loginFailedReason = null;
         _ratings = null;
         _ratingsAt = DateTime.MinValue;
     }
@@ -538,18 +543,53 @@ public sealed class CsfdAccountClient
         var wait = _loginFailedAt + LoginCooldown - DateTime.UtcNow;
         if (wait > TimeSpan.Zero)
         {
-            return (false, $"Prihlásenie na ČSFD nedávno zlyhalo – ďalší pokus o {Math.Ceiling(wait.TotalMinutes)} min (alebo po uložení nastavení).");
+            return (false, CooldownMessage(wait, _loginFailedReason));
         }
 
         try
         {
-            return await LoginCoreAsync(cancellationToken).ConfigureAwait(false);
+            var result = await LoginCoreAsync(cancellationToken).ConfigureAwait(false);
+            RecordLogin(result.Ok, result.Message);
+            return result;
         }
-        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             _loginFailedAt = DateTime.UtcNow;
+            RecordLogin(false, ex.Message);
             throw;
         }
+    }
+
+    /// <summary>Hláška poistky po neúspešnom prihlásení – so skutočným dôvodom prvého zlyhania, ak ho poznáme.</summary>
+    internal static string CooldownMessage(TimeSpan wait, string? reason)
+    {
+        var why = string.IsNullOrWhiteSpace(reason) ? string.Empty : $" ({reason.Trim().TrimEnd('.')})";
+        var minutes = Math.Max(1, (int)Math.Ceiling(wait.TotalMinutes));
+        return $"Prihlásenie na ČSFD zlyhalo{why} – ďalší pokus o {minutes.ToString(CultureInfo.InvariantCulture)} min (alebo po uložení nastavení).";
+    }
+
+    private void RecordLogin(bool ok, string message)
+    {
+        _lastLoginAt = DateTime.UtcNow;
+        _lastLoginOk = ok;
+        _loginFailedReason = ok ? null : message;
+        if (!ok)
+        {
+            _logger.LogWarning("ČSFD účet: prihlásenie zlyhalo – {Reason}", message);
+        }
+    }
+
+    /// <summary>Stav posledného prihlásenia pre nastavenia pluginu; null čas = ešte neprebehlo.</summary>
+    internal static (DateTime? At, bool Ok, string? Reason, int? RetryInMinutes) LastLoginStatus()
+    {
+        if (_lastLoginAt == DateTime.MinValue)
+        {
+            return (null, false, null, null);
+        }
+
+        var wait = _loginFailedAt + LoginCooldown - DateTime.UtcNow;
+        int? retry = !_lastLoginOk && wait > TimeSpan.Zero ? Math.Max(1, (int)Math.Ceiling(wait.TotalMinutes)) : null;
+        return (_lastLoginAt, _lastLoginOk, _loginFailedReason, retry);
     }
 
     private async Task<(bool Ok, string Message)> LoginCoreAsync(CancellationToken cancellationToken)
