@@ -71,6 +71,7 @@
                         <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" id="AllowRatingForAllUsers" /><span>Hodnotiť môžu všetci používatelia Jellyfinu (inak len administrátori)</span></label>
                         <button is="emby-button" type="button" id="csfdTestLogin" class="raised button-alt block"><span>Otestovať prihlásenie</span></button>
                         <div id="csfdLoginResult" class="fieldDescription" style="margin-top:.5em;"></div>
+                        <div id="csfdLoginStatus" class="fieldDescription" style="margin-top:.5em;"></div>
                     </div>
 
                     <div class="verticalSection">
@@ -98,7 +99,25 @@
 
                 function el(id) { return page.querySelector('#' + id); }
 
+                function showLoginStatus() {
+                    var out = el('csfdLoginStatus');
+                    ApiClient.fetch({ url: ApiClient.getUrl('Plugins/Csfd/LoginStatus'), type: 'GET', dataType: 'json' })
+                        .then(function (r) {
+                            if (!r.known) {
+                                out.textContent = 'Posledné prihlásenie: od štartu servera ešte neprebehlo.';
+                                return;
+                            }
+                            var when = new Date(r.at).toLocaleString('sk-SK');
+                            out.textContent = r.ok
+                                ? 'Posledné prihlásenie: OK (' + when + ')'
+                                : 'Posledné prihlásenie: zlyhalo ' + when + ' – ' + (r.reason || 'neznámy dôvod')
+                                    + (r.retryInMinutes ? ' (ďalší pokus o ' + r.retryInMinutes + ' min alebo po uložení nastavení)' : '');
+                        })
+                        .catch(function () { out.textContent = ''; });
+                }
+
                 page.addEventListener('pageshow', function () {
+                    showLoginStatus();
                     Dashboard.showLoadingMsg();
                     ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                         textFields.forEach(function (f) { el(f).value = config[f] || ''; });
@@ -145,7 +164,8 @@
                     save()
                         .then(function () { return ApiClient.fetch({ url: ApiClient.getUrl('Plugins/Csfd/TestLogin'), type: 'POST', dataType: 'json' }); })
                         .then(function (r) { out.textContent = (r.ok ? 'OK: ' : 'Chyba: ') + r.message; })
-                        .catch(function (err) { out.textContent = 'Chyba: ' + err; });
+                        .catch(function (err) { out.textContent = 'Chyba: ' + err; })
+                        .then(showLoginStatus);
                 });
 
                 el('csfdClear').addEventListener('click', function () {
