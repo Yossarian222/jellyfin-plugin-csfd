@@ -8,7 +8,7 @@ Jellyfin ──► Jellyfin.Plugin.Csfd ──► csfd-api (Docker, NAS :3080) �
 ```
 
 **Metadáta** (názvy, popisy, hodnotenie, premiéry, epizódy) parsuje [node-csfd-api](https://github.com/bartholomej/node-csfd-api) v kontajneri; plugin k nim pridáva cache a párovanie.
-**TV tipy, rebríčky, zaujímavosti, „Chcem vidieť“ a hodnotenie filmov** sidecar nemá – tieto stránky plugin sťahuje z csfd.sk/csfd.cz sám a výzvu Anubis (proof-of-work) rieši tiež sám.
+**TV tipy, rebríčky, zaujímavosti, „Chcem vidieť“ a hodnotenie filmov** sidecar nemá – tieto stránky plugin sťahuje z csfd.sk/csfd.cz sám. Anonymné čítanie sa predstaví poctivým User-Agentom `jellyfin-plugin-csfd/<verzia> (+https://github.com/Yossarian222/jellyfin-plugin-csfd)` s hlavičkou `Accept`, ktorý Anubis na ČSFD púšťa bez výzvy. Ak výzva predsa príde (alebo pri prihlásenej relácii s prehliadačovým UA), plugin ju vyrieši sám: `fast`/`slow` (SHA-256 proof-of-work) aj `metarefresh` (hlavička `Refresh` alebo `<meta refresh>`); pri neúspechu zaloguje verziu Anubisu, HTTP stav a dôvod.
 
 ## 1. Sidecar csfd-api (Portainer)
 
@@ -87,7 +87,7 @@ Endpointy pod `/Plugins/Csfd/…` (test spojenia, test prihlásenia, vymazanie c
 
 Každý titul = 1 request (+1 ak chýba SK popis), epizódy 1 request na kus + 1 na sezónu. Pri 2,5 s rozostupe ~1 400 requestov/h. Výsledky sú v cache (predvolene 30 dní) v `/config/plugins/Jellyfin.Plugin.Csfd/cache/`; vymazať sa dá tlačidlom v nastaveniach pluginu.
 
-**Nočné prednačítanie** – naplánovaná úloha „ČSFD: nočné prednačítanie“ (kategória ČSFD, predvolene denne o 3:00, dá sa spustiť ručne v Ovládací panel → Naplánované úlohy) obnoví TV tipy na dnes a zajtra, „Chcem vidieť“ a zaujímavosti všetkých filmov/seriálov s ČSFD ID, ktorým cache chýba alebo vyprší do 3 dní. Rozostup medzi titulmi `PrefetchDelayMs` (predvolene 3000 ms, minimum 1000), vypnúť sa dá `PrefetchEnabled`.
+**Nočné prednačítanie** – naplánovaná úloha „ČSFD: nočné prednačítanie“ (kategória ČSFD, predvolene denne o 3:00, dá sa spustiť ručne v Ovládací panel → Naplánované úlohy) obnoví TV tipy na dnes a zajtra, „Chcem vidieť“ a zaujímavosti všetkých filmov/seriálov s ČSFD ID, ktorým cache chýba alebo vyprší do 3 dní. Rozostup medzi titulmi `PrefetchDelayMs` (predvolene 3000 ms, minimum 1000), medzi jednotlivými požiadavkami na ČSFD (aj SK→CZ pokus) najmenej 1 s; vypnúť sa dá `PrefetchEnabled`. Tituly, ktoré na ČSFD zaujímavosti nemajú, sa skúšajú znova raz za 7 dní. Záverečný riadok v logu hlási aj počet zlyhaní (`zlyhalo N`).
 
 ## Nasflix
 

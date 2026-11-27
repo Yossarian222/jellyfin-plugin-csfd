@@ -135,6 +135,7 @@ public sealed class CsfdPrefetchTask : IScheduledTask
 
         var refreshed = 0;
         var withTrivia = 0;
+        var failuresBefore = CsfdTriviaClient.FailureCount;
         for (var i = 0; i < due.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -154,13 +155,14 @@ public sealed class CsfdPrefetchTask : IScheduledTask
 
         progress.Report(100);
         _logger.LogInformation(
-            "ČSFD prednačítanie hotové za {Elapsed:hh\\:mm\\:ss}: TV tipy dnes/zajtra {Tips}, „Chcem vidieť“ {Watchlist}, zaujímavosti {Refreshed}/{Due} (s textom {WithTrivia}), aktuálnych {Fresh}",
+            "ČSFD prednačítanie hotové za {Elapsed:hh\\:mm\\:ss}: TV tipy dnes/zajtra {Tips}, „Chcem vidieť“ {Watchlist}, zaujímavosti {Refreshed}/{Due} (s textom {WithTrivia}, zlyhalo {Failed}), aktuálnych {Fresh}",
             DateTime.UtcNow - started,
             string.Join("/", tipCounts),
             watchlistCount,
             refreshed,
             due.Count,
             withTrivia,
+            CsfdTriviaClient.FailureCount - failuresBefore,
             ids.Count - due.Count);
     }
 

@@ -223,6 +223,92 @@ public class CsfdTvTipsTests
     }
 
     [Fact]
+    public void BotUserAgent_IsHonestAndValidHeader()
+    {
+        using var http = new System.Net.Http.HttpClient();
+        http.DefaultRequestHeaders.UserAgent.ParseAdd(CsfdTvTipsClient.BotUserAgent);
+        Assert.StartsWith("jellyfin-plugin-csfd/", CsfdTvTipsClient.BotUserAgent);
+        Assert.DoesNotContain("Mozilla", CsfdTvTipsClient.BotUserAgent);
+    }
+
+    [Fact]
+    public void AnubisVersion_ReadsVersionScript()
+    {
+        Assert.Equal("v1.28.2", CsfdTvTipsClient.AnubisVersion("""<script id="anubis_version" type="application/json">"v1.28.2"</script>"""));
+        Assert.Equal("?", CsfdTvTipsClient.AnubisVersion("<html></html>"));
+    }
+
+    [Fact]
+    public void SolveChallenge_RealAnubis128Format()
+    {
+        // Skrátená skutočná výzva z csfd.cz (Anubis v1.28.2, 2026-11-27).
+        var page = """<script id="anubis_version" type="application/json">"v1.28.2"</script><script id="anubis_challenge" type="application/json">{"rules":{"algorithm":"fast","difficulty":1},"challenge":{"issuedAt":"2026-11-27T13:03:47.758343526+01:00","metadata":{"Referer":"","User-Agent":"x"},"id":"01a21ce3-e7ae-7535-bece-53c0087e531b","method":"fast","randomData":"1862d72dae41864a","policyRuleHash":"3a9fde8140e918cd","difficulty":1,"spent":false,"extensions":null}}</script>""";
+
+        var solved = CsfdTvTipsClient.TrySolveChallenge(page, out _);
+
+        Assert.NotNull(solved);
+        Assert.Equal("01a21ce3-e7ae-7535-bece-53c0087e531b", solved!.Value.Id);
+        Assert.StartsWith("0", solved.Value.Hash);
+    }
+
+    [Theory]
+    [InlineData("""{"rules":{"algorithm":"fast","difficulty":1},"challenge":null}""", "challenge je Null")]
+    [InlineData("""{"rules":{"algorithm":"fast","difficulty":1}}""", "challenge je chýba")]
+    [InlineData("""{"rules":{"algorithm":"preact","difficulty":1},"challenge":{"id":"a","randomData":"b"}}""", "preact")]
+    [InlineData("""{"rules":{"algorithm":"metarefresh","difficulty":1},"challenge":{"id":"a","randomData":"b"}}""", "metarefresh bez")]
+    [InlineData("""{"rules":null,"challenge":{"id":"a","randomData":"b"}}""", "rules")]
+    [InlineData("""{"rules":{"algorithm":"fast","difficulty":1},"challenge":{"id":"a"}}""", "randomData")]
+    [InlineData("""nie-json""", "JSON")]
+    public void TrySolveChallenge_UnexpectedFormat_GivesReasonInsteadOfThrowing(string json, string expectedReason)
+    {
+        var page = $"""<script id="anubis_challenge" type="application/json">{json}</script>""";
+
+        var solved = CsfdTvTipsClient.TrySolveChallenge(page, out var reason);
+
+        Assert.Null(solved);
+        Assert.Contains(expectedReason, reason);
+    }
+
+    [Fact]
+    public void TryParseMetaRefresh_ReadsAnubisMetarefreshChallenge()
+    {
+        var page = """<script id="anubis_challenge" type="application/json">{"rules":{"algorithm":"metarefresh","difficulty":1},"challenge":{"id":"x","randomData":"y"}}</script>"""
+            + """<meta http-equiv="refresh" content="2; url=/.within.website/x/cmd/anubis/api/pass-challenge?challenge=abc&amp;id=x&amp;redir=%2Ffilm%2F1%2F">""";
+
+        Assert.True(CsfdTvTipsClient.TryParseMetaRefresh(page, new System.Uri("https://www.csfd.cz/film/1/zajimavosti/"), out var delay, out var url));
+        Assert.True(delay >= System.TimeSpan.FromSeconds(2));
+        Assert.Equal("https://www.csfd.cz/.within.website/x/cmd/anubis/api/pass-challenge?challenge=abc&id=x&redir=%2Ffilm%2F1%2F", url.AbsoluteUri);
+    }
+
+    [Fact]
+    public void TryParseMetaRefresh_PrefersRefreshHeader()
+    {
+        // Anubis v1.28 náhodne dáva URL len do hlavičky Refresh – stránka potom meta tag nemá.
+        var page = """<script id="anubis_challenge" type="application/json">{"rules":{"algorithm":"metarefresh","difficulty":1}}</script>""";
+
+        Assert.True(CsfdTvTipsClient.TryParseMetaRefresh(
+            page,
+            new System.Uri("https://www.csfd.sk/film/8365/zaujimavosti/"),
+            out _,
+            out var url,
+            "2; url=/.within.website/x/cmd/anubis/api/pass-challenge?challenge=abc&id=x&redir=%2Ffilm%2F8365%2Fzaujimavosti%2F"));
+        Assert.Equal("www.csfd.sk", url.Host);
+        Assert.Contains("challenge=abc&id=x", url.Query);
+        Assert.False(CsfdTvTipsClient.TryParseMetaRefresh(page, new System.Uri("https://www.csfd.sk/film/8365/zaujimavosti/"), out _, out _));
+    }
+
+    [Theory]
+    [InlineData("""<meta http-equiv="refresh" content="2; url=https://evil.example/.within.website/x/cmd/anubis/api/pass-challenge?a=1">""")]
+    [InlineData("""<meta http-equiv="refresh" content="2; url=/inde/">""")]
+    [InlineData("""<p>bez meta</p>""")]
+    public void TryParseMetaRefresh_RejectsForeignOrMissingTarget(string meta)
+    {
+        var page = """<script id="anubis_challenge" type="application/json">{}</script>""" + meta;
+
+        Assert.False(CsfdTvTipsClient.TryParseMetaRefresh(page, new System.Uri("https://www.csfd.cz/film/1/zajimavosti/"), out _, out _));
+    }
+
+    [Fact]
     public void SolveChallenge_StopsOnCancellation()
     {
         var page = """<script id="anubis_challenge" type="application/json">{"rules":{"algorithm":"fast","difficulty":5},"challenge":{"id":"abc","randomData":"deadbeef"}}</script>""";
