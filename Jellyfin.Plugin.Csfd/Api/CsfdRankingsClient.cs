@@ -91,7 +91,7 @@ public sealed class CsfdRankingsClient
     private async Task<Dictionary<int, int>> DownloadAsync(CancellationToken cancellationToken)
     {
         var ranks = new Dictionary<int, int>();
-        using var http = CsfdTvTipsClient.CreateHttpClient();
+        using var http = CsfdTvTipsClient.CreateHttpClient(asBot: true);
         foreach (var list in Lists)
         {
             for (var from = 0; from < 1000; from += 100)

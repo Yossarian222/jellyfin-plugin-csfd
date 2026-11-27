@@ -75,7 +75,7 @@ public sealed class CsfdAccountClient
             }
 
             var ratings = new Dictionary<int, int>();
-            using var http = CsfdTvTipsClient.CreateHttpClient();
+            using var http = CsfdTvTipsClient.CreateHttpClient(asBot: true);
             for (var page = 1; page <= 200; page++)
             {
                 var path = $"/uzivatel/{profile.Groups[1].Value}/hodnotenia/" + (page > 1 ? $"?page={page}" : string.Empty);

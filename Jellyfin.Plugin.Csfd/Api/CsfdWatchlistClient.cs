@@ -358,7 +358,7 @@ public sealed class CsfdWatchlistClient
             _logger.LogInformation("ČSFD Chcem vidieť: ČSFD účet nie je v plugine nastavený – súkromné položky zoznamu nevidno");
         }
 
-        using var http = CsfdTvTipsClient.CreateHttpClient();
+        using var http = CsfdTvTipsClient.CreateHttpClient(asBot: true);
         foreach (var url in WatchlistUrls(profile))
         {
             var (items, loaded) = await DownloadListAsync(url, u => CsfdTvTipsClient.GetPageAsync(http, u, _logger, cancellationToken), cancellationToken).ConfigureAwait(false);

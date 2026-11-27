@@ -41,6 +41,17 @@ public class CsfdTriviaTests
     }
 
     [Fact]
+    public void Fresh_EmptyResultIgnoresMarginAndLastsAWeek()
+    {
+        var empty = new List<string>();
+
+        // Titul bez zaujímavostí sa nesmie sťahovať každú noc len kvôli rezerve prednačítania.
+        Assert.True(CsfdTriviaClient.Fresh(DateTime.UtcNow - TimeSpan.FromDays(1), empty, CsfdPrefetchTask.TriviaRefreshMargin));
+        Assert.True(CsfdTriviaClient.Fresh(DateTime.UtcNow - TimeSpan.FromDays(6), empty, CsfdPrefetchTask.TriviaRefreshMargin));
+        Assert.False(CsfdTriviaClient.Fresh(DateTime.UtcNow - TimeSpan.FromDays(8), empty, CsfdPrefetchTask.TriviaRefreshMargin));
+    }
+
+    [Fact]
     public void Fresh_RefreshMarginBringsExpiryForward()
     {
         var items = new List<string> { "x" };

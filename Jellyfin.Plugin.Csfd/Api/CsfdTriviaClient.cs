@@ -20,8 +20,30 @@ public sealed class CsfdTriviaClient
 {
     private static readonly TimeSpan CacheTtl = TimeSpan.FromDays(30);
 
-    /// <summary>Prázdny výsledok (alebo chyba) sa skúsi znova skôr.</summary>
-    private static readonly TimeSpan EmptyCacheTtl = TimeSpan.FromDays(1);
+    /// <summary>
+    /// Stránka sa načítala, ale zaujímavosti na ČSFD nie sú – skúsime znova o týždeň.
+    /// (Predtým 1 deň: s rezervou prednačítania 3 dni sa takéto tituly sťahovali každú noc – ~360 zbytočných požiadaviek.)
+    /// </summary>
+    private static readonly TimeSpan EmptyCacheTtl = TimeSpan.FromDays(7);
+
+    /// <summary>Po chybe sťahovania (ČSFD neodpovedá, Anubis) so starou cache sa skúsi znova o deň.</summary>
+    private static readonly TimeSpan RetryAfterFailure = TimeSpan.FromDays(1);
+
+    /// <summary>Najkratší rozostup medzi požiadavkami na ČSFD (aj medzi SK a CZ stránkou jedného filmu).</summary>
+    internal static readonly TimeSpan MinRequestGap = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// Jeden klient pre všetky filmy: poctivé bot UA (Anubis ho nezastaví) a ak by predsa prišla výzva,
+    /// jej cookie (platí 7 dní) ostane v CookieContainer pre ďalšie filmy tej istej noci.
+    /// </summary>
+    private static readonly Lazy<HttpClient> SharedHttp = new(() => CsfdTvTipsClient.CreateHttpClient(asBot: true));
+
+    private static DateTime _lastRequestAt = DateTime.MinValue;
+
+    private static int _failures;
+
+    /// <summary>Počet neúspešných stiahnutí od štartu (sieť, HTTP chyba, Anubis) – nočné prednačítanie z neho počíta rozdiel.</summary>
+    public static int FailureCount => Volatile.Read(ref _failures);
 
     private static readonly Regex ItemRx = new(@"<li[^>]*>(.*?)</li>", RegexOptions.Compiled | RegexOptions.Singleline);
     private static readonly Regex AuthorRx = new(@"\(\s*<a[^>]*href=""/uzivatel/[^>]*>.*?</a>\s*\)", RegexOptions.Compiled | RegexOptions.Singleline);
@@ -88,7 +110,7 @@ public sealed class CsfdTriviaClient
                 if (cached is { Count: > 0 })
                 {
                     // Ďalší pokus o stiahnutie až o deň.
-                    Remember(csfdId, DateTime.UtcNow - CacheTtl + EmptyCacheTtl, cached);
+                    Remember(csfdId, DateTime.UtcNow - CacheTtl + RetryAfterFailure, cached);
                     return cached;
                 }
 
@@ -150,9 +172,14 @@ public sealed class CsfdTriviaClient
         }
     }
 
-    /// <summary>Platí cache z času <paramref name="at"/> ešte aspoň <paramref name="margin"/>?</summary>
+    /// <summary>
+    /// Platí cache z času <paramref name="at"/> ešte aspoň <paramref name="margin"/>?
+    /// Rezerva platí len pre neprázdne zaujímavosti – „nič“ netreba obnovovať v predstihu.
+    /// </summary>
     internal static bool Fresh(DateTime at, List<string> items, TimeSpan margin = default)
-        => DateTime.UtcNow - at + margin < (items.Count > 0 ? CacheTtl : EmptyCacheTtl);
+        => items.Count > 0
+            ? DateTime.UtcNow - at + margin < CacheTtl
+            : DateTime.UtcNow - at < EmptyCacheTtl;
 
     /// <summary>Vytiahne texty zaujímavostí zo stránky (bez autora a bez spoilerov).</summary>
     internal static List<string> ParseTrivia(string html)
@@ -189,19 +216,25 @@ public sealed class CsfdTriviaClient
 
     private async Task<List<string>?> DownloadAsync(int csfdId, CancellationToken cancellationToken)
     {
-        using var http = CsfdTvTipsClient.CreateHttpClient();
+        var http = SharedHttp.Value;
         try
         {
             // Slovenské zaujímavosti; ak ich SK stránka nemá, skúsime českú.
-            var html = await CsfdTvTipsClient.GetPageAsync(http, $"/film/{csfdId}/zaujimavosti/", _logger, cancellationToken).ConfigureAwait(false);
-            var items = html is null ? null : ParseTrivia(html);
+            var sk = await GetPoliteAsync(http, $"/film/{csfdId}/zaujimavosti/", cancellationToken).ConfigureAwait(false);
+            var items = sk is null ? null : ParseTrivia(sk);
             if (items is null || items.Count == 0)
             {
-                var cz = await CsfdTvTipsClient.GetPageAsync(http, $"https://www.csfd.cz/film/{csfdId}/zajimavosti/", _logger, cancellationToken).ConfigureAwait(false);
+                var cz = await GetPoliteAsync(http, $"https://www.csfd.cz/film/{csfdId}/zajimavosti/", cancellationToken).ConfigureAwait(false);
                 if (cz is not null)
                 {
                     items = ParseTrivia(cz);
                 }
+            }
+
+            if (items is null)
+            {
+                // Výzvu Anubis sa nepodarilo prejsť ani na SK, ani na CZ (dôvod je v predošlom varovaní).
+                Interlocked.Increment(ref _failures);
             }
 
             _logger.LogDebug("ČSFD zaujímavosti {Id}: {Count}", csfdId, items?.Count);
@@ -213,8 +246,36 @@ public sealed class CsfdTriviaClient
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
-            _logger.LogWarning(ex, "ČSFD zaujímavosti {Id}: stránka sa nepodarila načítať", csfdId);
+            _logger.LogWarning(
+                "ČSFD zaujímavosti {Id}: stránka sa nepodarila načítať ({Status}): {Error}",
+                csfdId,
+                ex is HttpRequestException { StatusCode: { } code } ? $"HTTP {(int)code}" : ex.GetType().Name,
+                ex.Message);
+            _logger.LogDebug(ex, "ČSFD zaujímavosti {Id}: detail chyby", csfdId);
+            Interlocked.Increment(ref _failures);
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Stiahne stránku zdieľaným klientom, najskôr <see cref="MinRequestGap"/> po predošlej požiadavke
+    /// (aj medzi SK a CZ pokusom toho istého filmu). Volá sa len pod <see cref="Gate"/>.
+    /// </summary>
+    private async Task<string?> GetPoliteAsync(HttpClient http, string pathOrUrl, CancellationToken cancellationToken)
+    {
+        var wait = _lastRequestAt + MinRequestGap - DateTime.UtcNow;
+        if (wait > TimeSpan.Zero)
+        {
+            await Task.Delay(wait, cancellationToken).ConfigureAwait(false);
+        }
+
+        try
+        {
+            return await CsfdTvTipsClient.GetPageAsync(http, pathOrUrl, _logger, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _lastRequestAt = DateTime.UtcNow;
         }
     }
 
